@@ -50,7 +50,7 @@ export function MetaMes({ painel: p }: { painel: PainelMeta }) {
               {metaBatida ? 'Meta batida' : `${p.pctMeta}% da meta`}
             </span>
           )}
-          <Link href="/config#meta" className="text-sm font-semibold text-framboesa hover:underline">
+          <Link href="/config/metas" className="text-sm font-semibold text-framboesa hover:underline">
             {p.metaCentavos ? 'Alterar meta' : 'Definir meta'}
           </Link>
         </div>

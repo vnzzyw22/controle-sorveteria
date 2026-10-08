@@ -10,6 +10,7 @@ import { setParcelaPaga } from '@/lib/actions'
 import type { ContasAlerta, Parcela } from '@/lib/data'
 import { formatData, formatDataCurta } from '@/lib/dates'
 import { formatBRL } from '@/lib/money'
+import { linkEditarSaida } from '@/lib/voltar'
 
 const soma = (xs: Parcela[]) => xs.reduce((a, p) => a + p.valorCentavos, 0)
 
@@ -149,6 +150,13 @@ function Linha({ parcela: p, mostrarVencimento }: { parcela: Parcela; mostrarVen
         {mostrarVencimento && (
           <span title={`Venceu em ${formatData(p.vencimento)}`}>venceu {formatDataCurta(p.vencimento)}</span>
         )}
+        <Link
+          href={linkEditarSaida(p.saidaId, '/')}
+          aria-label={`Editar conta: ${p.descricao}`}
+          className="font-semibold text-alerta underline underline-offset-2"
+        >
+          Editar
+        </Link>
       </span>
       <span className="tabular col-start-2 row-start-1 justify-self-end font-semibold sm:row-span-2 sm:self-center">
         {formatBRL(p.valorCentavos)}

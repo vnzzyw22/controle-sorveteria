@@ -1,14 +1,16 @@
 'use client'
 
 import { AnimatePresence, motion } from 'framer-motion'
+import { Pencil } from 'lucide-react'
 import Link from 'next/link'
 import { useState } from 'react'
-import { AnimatedBRL, ConfirmButton, FORMA_BAR, FormaBadge } from '@/components/ui'
+import { AnimatedBRL, BotaoEditar, ConfirmButton, FORMA_BAR, FormaBadge } from '@/components/ui'
 import { useToast } from '@/components/toast'
 import { deleteEntrada } from '@/lib/actions'
 import type { CaixaDia } from '@/lib/data'
 import { formatDataCurta, formatHora } from '@/lib/dates'
 import { FORMAS_ENTRADA, FORMA_LABEL, formatBRL, type FormaEntrada } from '@/lib/money'
+import { linkEditarSaida, linkEditarVenda } from '@/lib/voltar'
 
 const grupo = {
   hidden: { opacity: 0, y: 12 },
@@ -135,7 +137,7 @@ export function CaixaDoDia({ caixa, data }: { caixa: CaixaDia; data: string }) {
               </Link>
             </Vazio>
           ) : (
-            <ListaVendas entradas={caixa.entradas} />
+            <ListaVendas entradas={caixa.entradas} voltar={`/?data=${data}`} />
           )}
         </motion.section>
 
@@ -155,7 +157,7 @@ export function CaixaDoDia({ caixa, data }: { caixa: CaixaDia; data: string }) {
               {caixa.saidas.map((p) => (
                 <li key={p.id} className="flex items-center justify-between gap-3 py-3">
                   <span className="min-w-0">
-                    <span className="block truncate font-medium">{p.descricao}</span>
+                    <span className="block break-words font-medium">{p.descricao}</span>
                     <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-cacau-suave">
                       <FormaBadge forma={p.forma} />
                       {p.totalParcelas > 1 && <span>parcela {p.numero}/{p.totalParcelas}</span>}
@@ -163,7 +165,16 @@ export function CaixaDoDia({ caixa, data }: { caixa: CaixaDia; data: string }) {
                       {!p.pagoEm && <span className="font-semibold text-alerta">a pagar</span>}
                     </span>
                   </span>
-                  <span className="tabular shrink-0 font-semibold text-saida">− {formatBRL(p.valorCentavos)}</span>
+                  <span className="flex shrink-0 items-center gap-1">
+                    <span className="tabular font-semibold text-saida">− {formatBRL(p.valorCentavos)}</span>
+                    <Link
+                      href={linkEditarSaida(p.saidaId, `/?data=${data}`)}
+                      aria-label={`Editar saída: ${p.descricao}`}
+                      className="rounded-lg p-2 text-cacau-suave hover:bg-creme-fundo hover:text-framboesa"
+                    >
+                      <Pencil aria-hidden className="size-4" />
+                    </Link>
+                  </span>
                 </li>
               ))}
             </ul>
@@ -224,7 +235,7 @@ export function BarraSabores({
   )
 }
 
-function ListaVendas({ entradas }: { entradas: CaixaDia['entradas'] }) {
+function ListaVendas({ entradas, voltar }: { entradas: CaixaDia['entradas']; voltar: string }) {
   const toast = useToast()
   const [abertas, setAbertas] = useState<number | null>(null)
   return (
@@ -269,15 +280,18 @@ function ListaVendas({ entradas }: { entradas: CaixaDia['entradas'] }) {
                       Venda #{v.id} · taxa {v.taxaPercentual.toFixed(2).replace('.', ',')}% · cai em{' '}
                       {formatDataCurta(v.dataRecebimento)}
                     </span>
-                    <ConfirmButton
-                      label="Excluir venda"
-                      confirmLabel="Confirmar exclusão"
-                      className="py-1.5!"
-                      onConfirm={async () => {
-                        const r = await deleteEntrada(v.id)
-                        toast({ tone: r.ok ? 'sucesso' : 'erro', message: r.message })
-                      }}
-                    />
+                    <span className="flex gap-2">
+                      <BotaoEditar href={linkEditarVenda(v.id, voltar)} label="Editar" className="py-1.5!" />
+                      <ConfirmButton
+                        label="Excluir venda"
+                        confirmLabel="Confirmar exclusão"
+                        className="py-1.5!"
+                        onConfirm={async () => {
+                          const r = await deleteEntrada(v.id)
+                          toast({ tone: r.ok ? 'sucesso' : 'erro', message: r.message })
+                        }}
+                      />
+                    </span>
                   </div>
                 </motion.div>
               )}

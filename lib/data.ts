@@ -207,6 +207,51 @@ interface SaidaRow {
   parcelas: { id: number; numero: number; vencimento: string; valor: string; pago_em: string | null }[]
 }
 
+function mapSaida(r: SaidaRow): Saida {
+  return {
+    id: r.id,
+    data: r.data,
+    descricao: r.descricao,
+    categoria: r.categoria,
+    fornecedor: r.fornecedor,
+    forma: r.forma,
+    condicao: r.condicao,
+    numParcelas: r.num_parcelas,
+    totalCentavos: decimalToCents(r.valor_total),
+    criadoEm: r.criado_em.toISOString(),
+    parcelas: r.parcelas.map((p) => ({
+      id: p.id,
+      numero: p.numero,
+      vencimento: p.vencimento,
+      valorCentavos: decimalToCents(p.valor),
+      pagoEm: p.pago_em,
+    })),
+  }
+}
+
+const SAIDA_COM_PARCELAS = /* sql */ `
+  SELECT s.*, COALESCE((
+    SELECT json_agg(json_build_object('id', p.id, 'numero', p.numero, 'vencimento', p.vencimento,
+                                      'valor', p.valor::text, 'pago_em', p.pago_em) ORDER BY p.numero)
+    FROM saidas_parcelas p WHERE p.saida_id = s.id), '[]') AS parcelas
+  FROM saidas s
+`
+
+/** Uma saída com todas as parcelas (tela de edição). */
+export async function getSaida(id: number): Promise<Saida | null> {
+  const [row] = await query<SaidaRow>(`${SAIDA_COM_PARCELAS} WHERE s.id = $1`, [id])
+  return row ? mapSaida(row) : null
+}
+
+/** Uma venda (tela de edição). */
+export async function getEntrada(id: number): Promise<Entrada | null> {
+  const [row] = await query<EntradaRow>(
+    `SELECT ${ENTRADA_COLUMNS} FROM entradas e LEFT JOIN maquininhas m ON m.id = e.maquininha_id WHERE e.id = $1`,
+    [id],
+  )
+  return row ? mapEntrada(row) : null
+}
+
 function whereSaidas(f: FiltroSaidas): { sql: string; params: unknown[] } {
   const conds = ['s.data BETWEEN $1 AND $2']
   const params: unknown[] = [f.de, f.ate]
@@ -235,11 +280,7 @@ export async function listSaidas(f: FiltroSaidas, opts: { all?: boolean } = {}) 
   const limit = opts.all ? '' : `LIMIT ${PAGE_SIZE} OFFSET ${(f.pagina - 1) * PAGE_SIZE}`
   const [rows, [tot]] = await Promise.all([
     query<SaidaRow>(
-      `SELECT s.*, COALESCE((
-         SELECT json_agg(json_build_object('id', p.id, 'numero', p.numero, 'vencimento', p.vencimento,
-                                           'valor', p.valor::text, 'pago_em', p.pago_em) ORDER BY p.numero)
-         FROM saidas_parcelas p WHERE p.saida_id = s.id), '[]') AS parcelas
-       FROM saidas s WHERE ${sql} ORDER BY s.data DESC, s.id DESC ${limit}`,
+      `${SAIDA_COM_PARCELAS} WHERE ${sql} ORDER BY s.data DESC, s.id DESC ${limit}`,
       params,
     ),
     query<{ quantidade: string; total: string | null }>(
@@ -247,25 +288,7 @@ export async function listSaidas(f: FiltroSaidas, opts: { all?: boolean } = {}) 
       params,
     ),
   ])
-  const saidas: Saida[] = rows.map((r) => ({
-    id: r.id,
-    data: r.data,
-    descricao: r.descricao,
-    categoria: r.categoria,
-    fornecedor: r.fornecedor,
-    forma: r.forma,
-    condicao: r.condicao,
-    numParcelas: r.num_parcelas,
-    totalCentavos: decimalToCents(r.valor_total),
-    criadoEm: r.criado_em.toISOString(),
-    parcelas: r.parcelas.map((p) => ({
-      id: p.id,
-      numero: p.numero,
-      vencimento: p.vencimento,
-      valorCentavos: decimalToCents(p.valor),
-      pagoEm: p.pago_em,
-    })),
-  }))
+  const saidas = rows.map(mapSaida)
   return {
     saidas,
     totais: { quantidade: Number(tot.quantidade), totalCentavos: decimalToCents(tot.total) },
@@ -454,6 +477,22 @@ export async function getMeta(mes: string): Promise<{ valorCentavos: number; des
     [mes],
   )
   return row ? { valorCentavos: decimalToCents(row.valor), desde: row.mes } : null
+}
+
+/** Todas as metas cadastradas (a tabela é pequena: uma linha por mês definido). */
+export async function getTodasMetas(): Promise<{ mes: string; valorCentavos: number }[]> {
+  const rows = await query<{ mes: string; valor: string }>('SELECT mes, valor FROM metas ORDER BY mes')
+  return rows.map((r) => ({ mes: r.mes, valorCentavos: decimalToCents(r.valor) }))
+}
+
+/** Vendas brutas de cada mês do ano ("AAAA-MM" -> centavos). */
+export async function getVendasPorMes(ano: number): Promise<Record<string, number>> {
+  const rows = await query<{ mes: string; bruto: string }>(
+    `SELECT to_char(data, 'YYYY-MM') AS mes, SUM(valor_bruto) AS bruto
+     FROM entradas WHERE data BETWEEN $1 AND $2 GROUP BY 1`,
+    [`${ano}-01-01`, `${ano}-12-31`],
+  )
+  return Object.fromEntries(rows.map((r) => [r.mes, decimalToCents(r.bruto)]))
 }
 
 /** Tudo que o painel de meta precisa para o mês de `today`. */

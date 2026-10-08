@@ -1,16 +1,18 @@
 'use client'
 
 import { AnimatePresence, motion } from 'framer-motion'
-import { AlertTriangle, Banknote, CreditCard, QrCode, Wallet } from 'lucide-react'
+import { AlertTriangle, Banknote, CreditCard, Pencil, QrCode, Wallet } from 'lucide-react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useActionState, useEffect, useRef, useState } from 'react'
 import { AnimatedBRL, FormaBadge, MoneyInput, Segmented, SubmitButton } from '@/components/ui'
 import { useToast } from '@/components/toast'
 import { PRAZO_PADRAO } from '@/lib/taxas'
-import { createEntrada, deleteEntrada } from '@/lib/actions'
+import { createEntrada, deleteEntrada, updateEntrada } from '@/lib/actions'
 import type { Entrada, Maquininha, Taxa, Totais } from '@/lib/data'
-import { addDays, formatDataCurta, formatHora } from '@/lib/dates'
+import { addDays, formatData, formatDataCurta, formatHora } from '@/lib/dates'
 import { FORMA_LABEL, MAX_PARCELAS_CREDITO, calcularTaxa, formatBRL, type FormaEntrada } from '@/lib/money'
+import { linkEditarVenda } from '@/lib/voltar'
 
 const ULTIMA_MAQ = 'sorveteria:ultima-maquininha'
 
@@ -27,31 +29,39 @@ export function VendaForm({
   taxas,
   recentes,
   totalHoje,
+  edicao,
 }: {
   hoje: string
   maquininhas: Maquininha[]
   taxas: Taxa[]
   recentes: Entrada[]
   totalHoje: Totais
+  /** Presente na tela de editar: a venda a mudar e para onde voltar depois de salvar. */
+  edicao?: { entrada: Entrada; voltar: string }
 }) {
-  const [state, action] = useActionState(createEntrada, null)
+  const [state, action] = useActionState(edicao ? updateEntrada : createEntrada, null)
   const toast = useToast()
+  const router = useRouter()
   const valorRef = useRef<HTMLInputElement>(null)
+  const original = edicao?.entrada
 
-  const [valor, setValor] = useState(0)
-  const [forma, setForma] = useState<FormaEntrada>('debito')
-  const [maquininha, setMaquininha] = useState<string>(maquininhas[0] ? String(maquininhas[0].id) : '')
-  const [parcelas, setParcelas] = useState(1)
-  const [data, setData] = useState(hoje)
-  const [descricao, setDescricao] = useState('')
+  const [valor, setValor] = useState(original?.brutoCentavos ?? 0)
+  const [forma, setForma] = useState<FormaEntrada>(original?.forma ?? 'debito')
+  const [maquininha, setMaquininha] = useState<string>(
+    original ? String(original.maquininhaId ?? '') : maquininhas[0] ? String(maquininhas[0].id) : '',
+  )
+  const [parcelas, setParcelas] = useState(original?.parcelas ?? 1)
+  const [data, setData] = useState(original?.data ?? hoje)
+  const [descricao, setDescricao] = useState(original?.descricao ?? '')
 
   // Lembra a última maquininha usada neste aparelho.
   useEffect(() => {
+    if (original) return
     try {
       const saved = localStorage.getItem(ULTIMA_MAQ)
       if (saved && maquininhas.some((m) => String(m.id) === saved)) setMaquininha(saved)
     } catch {}
-  }, [maquininhas])
+  }, [maquininhas, original])
 
   const precisaMaquininha = forma === 'debito' || forma === 'credito'
   const usaMaquininha = precisaMaquininha || (forma === 'pix' && maquininha !== '')
@@ -60,11 +70,15 @@ export function VendaForm({
   const taxa = maqId
     ? taxas.find((t) => t.maquininhaId === maqId && t.forma === forma && t.parcelas === parcelasEfetivas)
     : undefined
-  const taxaFaltando = usaMaquininha && !taxa
-  const percentual = taxa?.percentual ?? 0
+  // Ao editar sem mudar a forma de pagamento, vale a taxa que estava gravada na venda (igual ao servidor).
+  const mantemTaxa =
+    !!original && original.forma === forma && original.maquininhaId === maqId && original.parcelas === parcelasEfetivas
+  const taxaFaltando = usaMaquininha && !taxa && !mantemTaxa
+  const percentual = mantemTaxa ? original.taxaPercentual : (taxa?.percentual ?? 0)
   const { taxaCentavos, liquidoCentavos } = calcularTaxa(valor, percentual)
   const prazoPadrao = forma === 'dinheiro' ? 0 : PRAZO_PADRAO[forma]
-  const recebimento = addDays(data, usaMaquininha ? (taxa?.prazoDias ?? prazoPadrao) : 0)
+  const prazoOriginal = original ? Math.round((Date.parse(original.dataRecebimento) - Date.parse(original.data)) / 86_400_000) : 0
+  const recebimento = addDays(data, mantemTaxa ? prazoOriginal : usaMaquininha ? (taxa?.prazoDias ?? prazoPadrao) : 0)
   const maqNome = maquininhas.find((m) => m.id === maqId)?.nome
 
   function escolherForma(f: FormaEntrada) {
@@ -93,6 +107,11 @@ export function VendaForm({
     if (!state?.at || state.at === lastAt.current) return
     lastAt.current = state.at
     if (!state.ok) return
+    if (edicao) {
+      toast({ tone: 'sucesso', message: state.message })
+      router.push(edicao.voltar)
+      return
+    }
     const id = state.id
     toast({
       tone: 'sucesso',
@@ -110,18 +129,19 @@ export function VendaForm({
     setValor(0)
     setDescricao('')
     valorRef.current?.focus()
-  }, [state, toast])
+  }, [state, toast, edicao, router])
 
   const erro = state && !state.ok ? state : null
 
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
       <form action={action} className="cartao space-y-6 p-5 sm:p-7">
+        {edicao && <input type="hidden" name="id" value={edicao.entrada.id} />}
         <div>
           <label htmlFor="valor" className="rotulo">
             Valor da venda
           </label>
-          <MoneyInput id="valor" name="valor" value={valor} onChange={setValor} large autoFocus inputRef={valorRef} />
+          <MoneyInput id="valor" name="valor" value={valor} onChange={setValor} large autoFocus={!edicao} inputRef={valorRef} />
         </div>
 
         <Segmented
@@ -279,9 +299,14 @@ export function VendaForm({
           </p>
         )}
 
-        <SubmitButton pendingLabel="Lançando…" disabled={!valor} className="w-full py-4 text-lg">
-          Lançar venda {valor ? `de ${formatBRL(valor)}` : ''}
+        <SubmitButton pendingLabel={edicao ? 'Salvando…' : 'Lançando…'} disabled={!valor} className="w-full py-4 text-lg">
+          {edicao ? 'Salvar alterações' : `Lançar venda ${valor ? `de ${formatBRL(valor)}` : ''}`}
         </SubmitButton>
+        {edicao && (
+          <Link href={edicao.voltar} className="block text-center text-sm font-semibold text-cacau-suave hover:text-cacau">
+            Cancelar e voltar
+          </Link>
+        )}
       </form>
 
       <aside className="space-y-6">
@@ -297,7 +322,16 @@ export function VendaForm({
             maqNome={maqNome}
           />
         </div>
-        <Recentes recentes={recentes} totalHoje={totalHoje} hoje={hoje} />
+        {original ? (
+          <section className="cartao p-5 text-sm text-cacau-suave">
+            <h2 className="font-display text-lg font-bold text-cacau">Venda #{original.id}</h2>
+            <p className="mt-1">
+              Lançada em {formatData(original.data)} às {formatHora(new Date(original.criadoEm))}.
+            </p>
+          </section>
+        ) : (
+          <Recentes recentes={recentes} totalHoje={totalHoje} hoje={hoje} />
+        )}
       </aside>
     </div>
   )
@@ -381,7 +415,16 @@ function Recentes({ recentes, totalHoje, hoje }: { recentes: Entrada[]; totalHoj
                     {v.maquininhaNome ? ` · ${v.maquininhaNome}` : ''}
                   </span>
                 </span>
-                <span className="tabular shrink-0 font-semibold">{formatBRL(v.brutoCentavos)}</span>
+                <span className="flex shrink-0 items-center gap-2">
+                  <span className="tabular font-semibold">{formatBRL(v.brutoCentavos)}</span>
+                  <Link
+                    href={linkEditarVenda(v.id, '/vendas/nova')}
+                    aria-label={`Editar venda de ${formatBRL(v.brutoCentavos)}`}
+                    className="rounded-lg p-2 text-cacau-suave hover:bg-creme-fundo hover:text-framboesa"
+                  >
+                    <Pencil aria-hidden className="size-4" />
+                  </Link>
+                </span>
               </motion.li>
             ))}
           </AnimatePresence>

@@ -6,13 +6,14 @@ import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useCallback, useState, useTransition } from 'react'
 import { DetailList, Drawer } from '@/components/drawer'
-import { ConfirmButton, FormaBadge, Segmented } from '@/components/ui'
+import { BotaoEditar, ConfirmButton, FormaBadge, Segmented } from '@/components/ui'
 import { useToast } from '@/components/toast'
 import { deleteEntrada, deleteSaida, setParcelaPaga } from '@/lib/actions'
 import type { Entrada, Maquininha, Parcela, Saida, Totais } from '@/lib/data'
 import { addDays, addMonths, formatData, formatDataCurta, formatHora, inicioDoMes } from '@/lib/dates'
 import type { FiltroContas, FiltroSaidas, FiltroVendas } from '@/lib/filters'
 import { FORMAS_ENTRADA, FORMAS_SAIDA, FORMA_LABEL, formatBRL } from '@/lib/money'
+import { linkEditarSaida, linkEditarVenda } from '@/lib/voltar'
 
 // ---------- Navegação por filtros (tudo fica na URL: dá para atualizar, voltar e compartilhar) ----------
 
@@ -497,6 +498,7 @@ export function VendasView({
             <p className="text-xs text-cacau-suave">
               A taxa fica gravada como era no dia da venda. Mudar as taxas em Configurações não altera vendas antigas.
             </p>
+            <BotaoEditar href={linkEditarVenda(aberta.id, `/historico${query ? `?${query}` : ''}`)} label="Editar venda" className="w-full" />
             <ConfirmButton
               label="Excluir venda"
               confirmLabel="Toque de novo para excluir"
@@ -655,6 +657,11 @@ export function SaidasView({
                 ))}
               </ul>
             </div>
+            <BotaoEditar
+              href={linkEditarSaida(aberta.id, `/historico${query ? `?${query}` : ''}`)}
+              label="Editar saída"
+              className="w-full"
+            />
             <ConfirmButton
               label="Excluir saída"
               confirmLabel="Toque de novo para excluir"
@@ -724,7 +731,7 @@ export function ContasView({
   hoje: string
   paginas: number
 }) {
-  const { aplicar, pending } = useFiltros()
+  const { aplicar, pending, query } = useFiltros()
 
   // Agrupa por vencimento, preservando a ordem do banco.
   const grupos: { vencimento: string; itens: Parcela[] }[] = []
@@ -818,6 +825,12 @@ export function ContasView({
                               )}
                               {p.fornecedor && <span>· {p.fornecedor}</span>}
                               {p.pagoEm && <span className="text-entrada">paga em {formatData(p.pagoEm)}</span>}
+                              <Link
+                                href={linkEditarSaida(p.saidaId, `/historico${query ? `?${query}` : ''}`)}
+                                className="font-semibold text-framboesa underline underline-offset-2"
+                              >
+                                Editar
+                              </Link>
                             </span>
                           </span>
                           <span className="flex shrink-0 items-center gap-2">

@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useActionState, useEffect, useRef, useState } from 'react'
 import { MoneyInput, SubmitButton } from '@/components/ui'
 import { useToast } from '@/components/toast'
@@ -42,6 +43,11 @@ export function MetaForm({ mes, metaCentavos, desde }: { mes: string; metaCentav
           Salvar meta
         </SubmitButton>
       </form>
+      <p className="mt-4 text-sm">
+        <Link href="/config/metas" className="font-semibold text-framboesa hover:underline">
+          Ver e editar as metas de todos os meses
+        </Link>
+      </p>
     </section>
   )
 }

@@ -1,5 +1,6 @@
 'use server'
 
+import type { PoolClient } from 'pg'
 import { cookies } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
@@ -17,6 +18,7 @@ import {
   MAX_PARCELAS_SAIDA,
   calcularTaxa,
   centsToDecimal,
+  decimalToCents,
   dividirParcelas,
   type FormaEntrada,
   type FormaSaida,
@@ -86,9 +88,19 @@ export async function logout() {
 
 // ---------- Entradas ----------
 
-export async function createEntrada(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
-  await requireAuth()
+interface DadosEntrada {
+  valor: number
+  forma: FormaEntrada
+  data: string
+  descricao: string | null
+  maquininhaId: number | null
+  parcelas: number
+}
 
+const falhou = (x: object): x is ActionResult => 'ok' in x
+
+/** Lê e confere o formulário de venda (o mesmo para lançar e para editar). */
+function lerEntrada(formData: FormData): DadosEntrada | ActionResult {
   const valor = cents(formData, 'valor')
   if (!valor) return fail('Informe o valor da venda.')
 
@@ -108,50 +120,116 @@ export async function createEntrada(_prev: ActionResult | null, formData: FormDa
     return fail('Escolha em qual maquininha a venda passou.')
   }
   if (parcelas < 1 || parcelas > MAX_PARCELAS_CREDITO) return fail('Número de parcelas inválido.')
+  if (maquininhaId === null) parcelas = 1
+  else if (!Number.isInteger(maquininhaId)) return fail('Maquininha inválida.')
 
-  let percentual = 0
-  let prazoDias = 0
-  let semTaxa = false
+  return { valor, forma, data, descricao, maquininhaId, parcelas }
+}
 
-  if (maquininhaId !== null) {
-    if (!Number.isInteger(maquininhaId)) return fail('Maquininha inválida.')
-    const [maq] = await query<{ nome: string; ativa: boolean }>('SELECT nome, ativa FROM maquininhas WHERE id = $1', [
-      maquininhaId,
-    ])
-    if (!maq || !maq.ativa) return fail('Essa maquininha não está ativa.')
+/**
+ * Taxa e prazo da venda. Busca na tabela de taxas; ao editar uma venda cuja forma de pagamento
+ * não mudou, `manter` preserva a taxa que valia na época (a taxa fica gravada na própria venda).
+ */
+async function taxaDaVenda(
+  d: DadosEntrada,
+  manter?: { percentual: number; prazoDias: number },
+): Promise<{ erro: string } | { percentual: number; prazoDias: number; semTaxa: boolean }> {
+  if (d.maquininhaId === null) return { percentual: 0, prazoDias: 0, semTaxa: false }
+  if (manter) return { ...manter, semTaxa: false }
 
-    const [taxa] = await query<{ percentual: string; prazo_dias: number }>(
-      'SELECT percentual, prazo_dias FROM taxas WHERE maquininha_id = $1 AND forma = $2 AND parcelas = $3',
-      [maquininhaId, forma, parcelas],
-    )
-    // Taxa ainda não cadastrada: lança sem desconto (líquido = bruto) e avisa.
-    semTaxa = !taxa
-    percentual = taxa ? Number(taxa.percentual) : 0
-    prazoDias = taxa ? taxa.prazo_dias : PRAZO_PADRAO[forma as 'debito' | 'credito' | 'pix']
-  } else {
-    parcelas = 1
+  const [maq] = await query<{ ativa: boolean }>('SELECT ativa FROM maquininhas WHERE id = $1', [d.maquininhaId])
+  if (!maq || !maq.ativa) return { erro: 'Essa maquininha não está ativa.' }
+
+  const [taxa] = await query<{ percentual: string; prazo_dias: number }>(
+    'SELECT percentual, prazo_dias FROM taxas WHERE maquininha_id = $1 AND forma = $2 AND parcelas = $3',
+    [d.maquininhaId, d.forma, d.parcelas],
+  )
+  // Taxa ainda não cadastrada: lança sem desconto (líquido = bruto) e avisa.
+  return {
+    percentual: taxa ? Number(taxa.percentual) : 0,
+    prazoDias: taxa ? taxa.prazo_dias : PRAZO_PADRAO[d.forma as 'debito' | 'credito' | 'pix'],
+    semTaxa: !taxa,
   }
+}
 
-  const { taxaCentavos, liquidoCentavos } = calcularTaxa(valor, percentual)
+export async function createEntrada(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
+  await requireAuth()
+  const d = lerEntrada(formData)
+  if (falhou(d)) return d
+  const t = await taxaDaVenda(d)
+  if ('erro' in t) return fail(t.erro)
+
+  const { taxaCentavos, liquidoCentavos } = calcularTaxa(d.valor, t.percentual)
   const [row] = await query<{ id: number }>(
     `INSERT INTO entradas (data, descricao, forma, maquininha_id, parcelas, valor_bruto, taxa_percentual,
                            valor_taxa, valor_liquido, data_recebimento)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
     [
-      data,
-      descricao,
-      forma,
-      maquininhaId,
-      parcelas,
-      centsToDecimal(valor),
-      percentual.toFixed(2),
+      d.data,
+      d.descricao,
+      d.forma,
+      d.maquininhaId,
+      d.parcelas,
+      centsToDecimal(d.valor),
+      t.percentual.toFixed(2),
       centsToDecimal(taxaCentavos),
       centsToDecimal(liquidoCentavos),
-      addDays(data, prazoDias),
+      addDays(d.data, t.prazoDias),
     ],
   )
   refresh()
-  return done(semTaxa ? 'Venda lançada sem taxa (taxa ainda não cadastrada).' : 'Venda lançada.', row.id)
+  return done(t.semTaxa ? 'Venda lançada sem taxa (taxa ainda não cadastrada).' : 'Venda lançada.', row.id)
+}
+
+export async function updateEntrada(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
+  await requireAuth()
+  const id = int(formData, 'id')
+  if (!id) return fail('Venda inválida.')
+  const d = lerEntrada(formData)
+  if (falhou(d)) return d
+
+  const [atual] = await query<{
+    forma: FormaEntrada
+    maquininha_id: number | null
+    parcelas: number
+    taxa_percentual: string
+    prazo: number
+  }>(
+    `SELECT forma, maquininha_id, parcelas, taxa_percentual, (data_recebimento - data) AS prazo
+     FROM entradas WHERE id = $1`,
+    [id],
+  )
+  if (!atual) return fail('Essa venda já não existe.')
+
+  const mesmoPagamento =
+    atual.forma === d.forma && atual.maquininha_id === d.maquininhaId && atual.parcelas === d.parcelas
+  const t = await taxaDaVenda(
+    d,
+    mesmoPagamento ? { percentual: Number(atual.taxa_percentual), prazoDias: atual.prazo } : undefined,
+  )
+  if ('erro' in t) return fail(t.erro)
+
+  const { taxaCentavos, liquidoCentavos } = calcularTaxa(d.valor, t.percentual)
+  await query(
+    `UPDATE entradas SET data = $2, descricao = $3, forma = $4, maquininha_id = $5, parcelas = $6,
+            valor_bruto = $7, taxa_percentual = $8, valor_taxa = $9, valor_liquido = $10, data_recebimento = $11
+     WHERE id = $1`,
+    [
+      id,
+      d.data,
+      d.descricao,
+      d.forma,
+      d.maquininhaId,
+      d.parcelas,
+      centsToDecimal(d.valor),
+      t.percentual.toFixed(2),
+      centsToDecimal(taxaCentavos),
+      centsToDecimal(liquidoCentavos),
+      addDays(d.data, t.prazoDias),
+    ],
+  )
+  refresh()
+  return done(t.semTaxa ? 'Venda atualizada sem taxa (taxa ainda não cadastrada).' : 'Venda atualizada.', id)
 }
 
 export async function deleteEntrada(id: number): Promise<ActionResult> {
@@ -164,9 +242,20 @@ export async function deleteEntrada(id: number): Promise<ActionResult> {
 
 // ---------- Saídas ----------
 
-export async function createSaida(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
-  await requireAuth()
+interface DadosSaida {
+  descricao: string
+  valor: number
+  forma: FormaSaida
+  data: string
+  condicao: 'a_vista' | 'parcelado'
+  numParcelas: number
+  primeiroVencimento: string
+  categoria: string | null
+  fornecedor: string | null
+}
 
+/** Lê e confere o formulário de saída (o mesmo para lançar e para editar). */
+async function lerSaida(formData: FormData): Promise<DadosSaida | ActionResult> {
   const descricao = text(formData, 'descricao')
   if (!descricao) return fail('Descreva a saída (ex.: "Leite condensado").')
 
@@ -195,30 +284,91 @@ export async function createSaida(_prev: ActionResult | null, formData: FormData
   const jaUsadas = await getCategoriasUsadas()
   const categoria = categoriaCanonica(text(formData, 'categoria', 60), [...jaUsadas, ...CATEGORIAS_PADRAO])
   const fornecedor = text(formData, 'fornecedor', 120) || null
-  const valores = dividirParcelas(valor, numParcelas)
+
+  return { descricao, valor, forma, data, condicao, numParcelas, primeiroVencimento, categoria, fornecedor }
+}
+
+/** Cria as parcelas da saída. À vista que já venceu é considerado pago; parcelas ficam em aberto até serem marcadas. */
+async function gravarParcelas(client: PoolClient, saidaId: number, d: DadosSaida) {
+  const valores = dividirParcelas(d.valor, d.numParcelas)
   const today = hoje()
+  for (let i = 0; i < d.numParcelas; i++) {
+    const vencimento = addMonths(d.primeiroVencimento, i)
+    const pagoEm = d.condicao === 'a_vista' && vencimento <= today ? vencimento : null
+    await client.query(
+      `INSERT INTO saidas_parcelas (saida_id, numero, vencimento, valor, pago_em) VALUES ($1, $2, $3, $4, $5)`,
+      [saidaId, i + 1, vencimento, centsToDecimal(valores[i]), pagoEm],
+    )
+  }
+}
+
+export async function createSaida(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
+  await requireAuth()
+  const d = await lerSaida(formData)
+  if (falhou(d)) return d
 
   const id = await transaction(async (client) => {
     const { rows } = await client.query<{ id: number }>(
       `INSERT INTO saidas (data, descricao, categoria, fornecedor, forma, condicao, num_parcelas, valor_total)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-      [data, descricao, categoria, fornecedor, forma, condicao, numParcelas, centsToDecimal(valor)],
+      [d.data, d.descricao, d.categoria, d.fornecedor, d.forma, d.condicao, d.numParcelas, centsToDecimal(d.valor)],
     )
-    const saidaId = rows[0].id
-    for (let i = 0; i < numParcelas; i++) {
-      const vencimento = addMonths(primeiroVencimento, i)
-      // À vista que já venceu é considerado pago; parcelas ficam em aberto até serem marcadas.
-      const pagoEm = condicao === 'a_vista' && vencimento <= today ? vencimento : null
-      await client.query(
-        `INSERT INTO saidas_parcelas (saida_id, numero, vencimento, valor, pago_em) VALUES ($1, $2, $3, $4, $5)`,
-        [saidaId, i + 1, vencimento, centsToDecimal(valores[i]), pagoEm],
-      )
-    }
-    return saidaId
+    await gravarParcelas(client, rows[0].id, d)
+    return rows[0].id
   })
 
   refresh()
-  return done(condicao === 'parcelado' ? `Saída lançada em ${numParcelas} parcelas.` : 'Saída lançada.', id)
+  return done(d.condicao === 'parcelado' ? `Saída lançada em ${d.numParcelas} parcelas.` : 'Saída lançada.', id)
+}
+
+export async function updateSaida(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
+  await requireAuth()
+  const id = int(formData, 'id')
+  if (!id) return fail('Saída inválida.')
+  const d = await lerSaida(formData)
+  if (falhou(d)) return d
+
+  const [atual] = await query<{
+    condicao: 'a_vista' | 'parcelado'
+    num_parcelas: number
+    valor_total: string
+    pagas: string
+    primeiro: string
+  }>(
+    `SELECT s.condicao, s.num_parcelas, s.valor_total::text AS valor_total,
+            (SELECT COUNT(*) FROM saidas_parcelas p WHERE p.saida_id = s.id AND p.pago_em IS NOT NULL) AS pagas,
+            (SELECT MIN(p.vencimento) FROM saidas_parcelas p WHERE p.saida_id = s.id) AS primeiro
+     FROM saidas s WHERE s.id = $1`,
+    [id],
+  )
+  if (!atual) return fail('Essa saída já não existe.')
+
+  // Valor, número de parcelas e vencimento refazem as parcelas; o resto (nome, categoria...) é só texto.
+  const mudouValores =
+    decimalToCents(atual.valor_total) !== d.valor ||
+    atual.condicao !== d.condicao ||
+    atual.num_parcelas !== d.numParcelas ||
+    atual.primeiro !== d.primeiroVencimento
+  if (mudouValores && atual.condicao === 'parcelado' && Number(atual.pagas) > 0) {
+    return fail(
+      'Esta saída já tem parcelas pagas. Para mudar o valor, o número de parcelas ou o vencimento, desfaça os pagamentos antes (Histórico, aba Contas a pagar).',
+    )
+  }
+
+  await transaction(async (client) => {
+    await client.query(
+      `UPDATE saidas SET data = $2, descricao = $3, categoria = $4, fornecedor = $5, forma = $6,
+              condicao = $7, num_parcelas = $8, valor_total = $9 WHERE id = $1`,
+      [id, d.data, d.descricao, d.categoria, d.fornecedor, d.forma, d.condicao, d.numParcelas, centsToDecimal(d.valor)],
+    )
+    if (mudouValores) {
+      await client.query('DELETE FROM saidas_parcelas WHERE saida_id = $1', [id])
+      await gravarParcelas(client, id, d)
+    }
+  })
+
+  refresh()
+  return done('Saída atualizada.', id)
 }
 
 export async function deleteSaida(id: number): Promise<ActionResult> {
@@ -256,6 +406,30 @@ export async function saveMeta(_prev: ActionResult | null, formData: FormData): 
   )
   refresh()
   return done(`Meta de ${nomeDoMes(mes)} salva. Ela vale também para os próximos meses, até você mudar.`)
+}
+
+export async function saveMetas(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
+  await requireAuth()
+  const ano = text(formData, 'ano', 4)
+  if (!/^\d{4}$/.test(ano) || Number(ano) < 2020 || Number(ano) > 2100) return fail('Ano inválido.')
+
+  // Campo preenchido = meta própria do mês; campo vazio = o mês volta a usar a meta anterior.
+  await transaction(async (client) => {
+    for (let m = 1; m <= 12; m++) {
+      const mes = `${ano}-${String(m).padStart(2, '0')}`
+      const valor = cents(formData, `meta_${mes}`)
+      if (valor) {
+        await client.query(
+          'INSERT INTO metas (mes, valor) VALUES ($1, $2) ON CONFLICT (mes) DO UPDATE SET valor = EXCLUDED.valor',
+          [mes, centsToDecimal(valor)],
+        )
+      } else {
+        await client.query('DELETE FROM metas WHERE mes = $1', [mes])
+      }
+    }
+  })
+  refresh()
+  return done(`Metas de ${ano} salvas.`)
 }
 
 // ---------- Configurações ----------

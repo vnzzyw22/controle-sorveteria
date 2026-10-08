@@ -1,31 +1,47 @@
 'use client'
 
 import { AnimatePresence, motion } from 'framer-motion'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useActionState, useEffect, useRef, useState } from 'react'
 import { MoneyInput, Segmented, SubmitButton } from '@/components/ui'
 import { useToast } from '@/components/toast'
-import { createSaida, deleteSaida } from '@/lib/actions'
+import { createSaida, deleteSaida, updateSaida } from '@/lib/actions'
 import { chaveCategoria } from '@/lib/categorias'
+import type { Saida } from '@/lib/data'
 import { addMonths, formatData } from '@/lib/dates'
 import { FORMAS_SAIDA, FORMA_LABEL, MAX_PARCELAS_SAIDA, dividirParcelas, formatBRL, type FormaSaida } from '@/lib/money'
 
 type Condicao = 'a_vista' | 'parcelado'
 
-export function SaidaForm({ hoje, categorias }: { hoje: string; categorias: string[] }) {
-  const [state, action] = useActionState(createSaida, null)
+export function SaidaForm({
+  hoje,
+  categorias,
+  edicao,
+}: {
+  hoje: string
+  categorias: string[]
+  /** Presente na tela de editar: a saída a mudar e para onde voltar depois de salvar. */
+  edicao?: { saida: Saida; voltar: string }
+}) {
+  const [state, action] = useActionState(edicao ? updateSaida : createSaida, null)
   const toast = useToast()
+  const router = useRouter()
   const descricaoRef = useRef<HTMLInputElement>(null)
+  const original = edicao?.saida
+  // Com parcelas já pagas, valor, número de parcelas e vencimento ficam travados (só o texto pode mudar).
+  const travada = !!original && original.condicao === 'parcelado' && original.parcelas.some((p) => p.pagoEm)
 
-  const [descricao, setDescricao] = useState('')
-  const [categoria, setCategoria] = useState('')
-  const [fornecedor, setFornecedor] = useState('')
-  const [valor, setValor] = useState(0)
-  const [forma, setForma] = useState<FormaSaida>('pix')
-  const [condicao, setCondicao] = useState<Condicao>('a_vista')
-  const [parcelas, setParcelas] = useState(2)
-  const [data, setData] = useState(hoje)
+  const [descricao, setDescricao] = useState(original?.descricao ?? '')
+  const [categoria, setCategoria] = useState(original?.categoria ?? '')
+  const [fornecedor, setFornecedor] = useState(original?.fornecedor ?? '')
+  const [valor, setValor] = useState(original?.totalCentavos ?? 0)
+  const [forma, setForma] = useState<FormaSaida>(original?.forma ?? 'pix')
+  const [condicao, setCondicao] = useState<Condicao>(original?.condicao ?? 'a_vista')
+  const [parcelas, setParcelas] = useState(original && original.numParcelas > 1 ? original.numParcelas : 2)
+  const [data, setData] = useState(original?.data ?? hoje)
   // undefined = segue o padrão (à vista: data da compra; parcelado: um mês depois)
-  const [primeiro, setPrimeiro] = useState<string | undefined>(undefined)
+  const [primeiro, setPrimeiro] = useState<string | undefined>(original?.parcelas[0]?.vencimento)
 
   const n = condicao === 'parcelado' ? parcelas : 1
   const primeiroVenc = primeiro ?? (condicao === 'parcelado' ? addMonths(data, 1) : data)
@@ -39,6 +55,11 @@ export function SaidaForm({ hoje, categorias }: { hoje: string; categorias: stri
     if (!state?.at || state.at === lastAt.current) return
     lastAt.current = state.at
     if (!state.ok) return
+    if (edicao) {
+      toast({ tone: 'sucesso', message: state.message })
+      router.push(edicao.voltar)
+      return
+    }
     const id = state.id
     toast({
       tone: 'sucesso',
@@ -59,12 +80,13 @@ export function SaidaForm({ hoje, categorias }: { hoje: string; categorias: stri
     setCondicao('a_vista')
     setPrimeiro(undefined)
     descricaoRef.current?.focus()
-  }, [state, toast])
+  }, [state, toast, edicao, router])
 
   const erro = state && !state.ok ? state : null
 
   return (
     <form action={action} className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+      {edicao && <input type="hidden" name="id" value={edicao.saida.id} />}
       <div className="cartao space-y-6 p-5 sm:p-7">
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="sm:col-span-2">
@@ -81,7 +103,7 @@ export function SaidaForm({ hoje, categorias }: { hoje: string; categorias: stri
               onChange={(e) => setDescricao(e.target.value)}
               placeholder="Ex.: Leite condensado (caixa com 27)"
               className="campo"
-              autoFocus
+              autoFocus={!edicao}
             />
           </div>
           <div className="sm:col-span-2">
@@ -143,7 +165,14 @@ export function SaidaForm({ hoje, categorias }: { hoje: string; categorias: stri
             <label htmlFor="valor" className="rotulo">
               Valor total
             </label>
-            <MoneyInput id="valor" name="valor" value={valor} onChange={setValor} />
+            {travada ? (
+              <>
+                <input type="hidden" name="valor" value={valor} />
+                <p className="campo tabular bg-creme-fundo text-right">{formatBRL(valor)}</p>
+              </>
+            ) : (
+              <MoneyInput id="valor" name="valor" value={valor} onChange={setValor} />
+            )}
           </div>
           <div>
             <label htmlFor="data" className="rotulo">
@@ -171,65 +200,80 @@ export function SaidaForm({ hoje, categorias }: { hoje: string; categorias: stri
           options={FORMAS_SAIDA.map((f) => ({ value: f, label: FORMA_LABEL[f] }))}
         />
 
-        <Segmented
-          name="condicao"
-          legend="Condição"
-          layoutId="condicao-saida"
-          value={condicao}
-          onChange={(c) => {
-            setCondicao(c)
-            setPrimeiro(undefined)
-          }}
-          options={[
-            { value: 'a_vista', label: 'À vista' },
-            { value: 'parcelado', label: 'Parcelado' },
-          ]}
-        />
+        {travada && (
+          <p className="rounded-xl bg-alerta-fundo p-3.5 text-sm text-alerta">
+            Esta saída já tem parcelas pagas, então valor, número de parcelas e vencimento ficam travados. Para mudar, desfaça os
+            pagamentos antes (Histórico, aba Contas a pagar).
+          </p>
+        )}
+        {travada ? <input type="hidden" name="condicao" value={condicao} /> : (
+          <Segmented
+            name="condicao"
+            legend="Condição"
+            layoutId="condicao-saida"
+            value={condicao}
+            onChange={(c) => {
+              setCondicao(c)
+              setPrimeiro(undefined)
+            }}
+            options={[
+              { value: 'a_vista', label: 'À vista' },
+              { value: 'parcelado', label: 'Parcelado' },
+            ]}
+          />
+        )}
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <AnimatePresence initial={false}>
-            {condicao === 'parcelado' && (
-              <motion.div
-                key="parcelas"
-                initial={{ opacity: 0, y: -6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -6 }}
-                transition={{ duration: 0.2 }}
-              >
-                <label htmlFor="parcelas" className="rotulo">
-                  Número de parcelas
-                </label>
-                <select
-                  id="parcelas"
-                  name="parcelas"
-                  value={parcelas}
-                  onChange={(e) => setParcelas(Number(e.target.value))}
-                  className="campo tabular"
+        {travada ? (
+          <>
+            <input type="hidden" name="parcelas" value={parcelas} />
+            <input type="hidden" name="primeiro_vencimento" value={primeiroVenc} />
+          </>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <AnimatePresence initial={false}>
+              {condicao === 'parcelado' && (
+                <motion.div
+                  key="parcelas"
+                  initial={{ opacity: 0, y: -6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.2 }}
                 >
-                  {Array.from({ length: MAX_PARCELAS_SAIDA - 1 }, (_, i) => i + 2).map((k) => (
-                    <option key={k} value={k}>
-                      {k}x {valor >= k ? `de ${formatBRL(Math.round(valor / k))}` : ''}
-                    </option>
-                  ))}
-                </select>
-              </motion.div>
-            )}
-          </AnimatePresence>
-          <div>
-            <label htmlFor="primeiro_vencimento" className="rotulo">
-              {condicao === 'parcelado' ? '1º vencimento' : 'Vencimento'}
-            </label>
-            <input
-              id="primeiro_vencimento"
-              name="primeiro_vencimento"
-              type="date"
-              required
-              value={primeiroVenc}
-              onChange={(e) => setPrimeiro(e.target.value || undefined)}
-              className="campo"
-            />
+                  <label htmlFor="parcelas" className="rotulo">
+                    Número de parcelas
+                  </label>
+                  <select
+                    id="parcelas"
+                    name="parcelas"
+                    value={parcelas}
+                    onChange={(e) => setParcelas(Number(e.target.value))}
+                    className="campo tabular"
+                  >
+                    {Array.from({ length: MAX_PARCELAS_SAIDA - 1 }, (_, i) => i + 2).map((k) => (
+                      <option key={k} value={k}>
+                        {k}x {valor >= k ? `de ${formatBRL(Math.round(valor / k))}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </motion.div>
+              )}
+            </AnimatePresence>
+            <div>
+              <label htmlFor="primeiro_vencimento" className="rotulo">
+                {condicao === 'parcelado' ? '1º vencimento' : 'Vencimento'}
+              </label>
+              <input
+                id="primeiro_vencimento"
+                name="primeiro_vencimento"
+                type="date"
+                required
+                value={primeiroVenc}
+                onChange={(e) => setPrimeiro(e.target.value || undefined)}
+                className="campo"
+              />
+            </div>
           </div>
-        </div>
+        )}
 
         {erro && (
           <p key={erro.at} role="alert" className="rounded-xl bg-saida/10 p-3.5 text-sm font-medium text-saida">
@@ -237,9 +281,18 @@ export function SaidaForm({ hoje, categorias }: { hoje: string; categorias: stri
           </p>
         )}
 
-        <SubmitButton pendingLabel="Lançando…" disabled={!valor || !descricao.trim()} className="w-full py-4 text-lg">
-          Lançar saída {valor ? `de ${formatBRL(valor)}` : ''}
+        <SubmitButton
+          pendingLabel={edicao ? 'Salvando…' : 'Lançando…'}
+          disabled={!valor || !descricao.trim()}
+          className="w-full py-4 text-lg"
+        >
+          {edicao ? 'Salvar alterações' : `Lançar saída ${valor ? `de ${formatBRL(valor)}` : ''}`}
         </SubmitButton>
+        {edicao && (
+          <Link href={edicao.voltar} className="block text-center text-sm font-semibold text-cacau-suave hover:text-cacau">
+            Cancelar e voltar
+          </Link>
+        )}
       </div>
 
       <aside aria-labelledby="parcelas-titulo" className="cartao h-fit p-5 lg:sticky lg:top-6">

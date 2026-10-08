@@ -1,7 +1,8 @@
 'use client'
 
 import { animate, motion, useReducedMotion } from 'framer-motion'
-import { Loader2 } from 'lucide-react'
+import { Loader2, Pencil } from 'lucide-react'
+import Link from 'next/link'
 import { useEffect, useRef, useState } from 'react'
 import { useFormStatus } from 'react-dom'
 import { FORMA_LABEL, formatBRL, type FormaSaida } from '@/lib/money'
@@ -258,5 +259,18 @@ export function PageHeader({
       </div>
       {children}
     </div>
+  )
+}
+
+/** Botão-link 'Editar', com o mesmo tamanho dos outros botões das telas de detalhe. */
+export function BotaoEditar({ href, label, className = '' }: { href: string; label: string; className?: string }) {
+  return (
+    <Link
+      href={href}
+      className={`inline-flex items-center justify-center gap-2 rounded-xl border border-linha bg-superficie px-4 py-2.5 text-sm font-semibold text-cacau transition-colors hover:border-borda ${className}`}
+    >
+      <Pencil aria-hidden className='size-4' />
+      {label}
+    </Link>
   )
 }
