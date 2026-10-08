@@ -38,9 +38,10 @@ Não precisa criar tabela nenhuma: o sistema cria tudo sozinho no primeiro acess
 
 ### 3. Primeiro uso
 
-1. Entre com a senha.
-2. Vá em **Configurações** e preencha as taxas de cada maquininha. Elas estão no app ou no contrato de cada uma e mudam conforme o plano. Deixe em branco o que vocês não usam.
-3. Pronto: comece a lançar as vendas.
+1. Entre com a senha e comece a lançar as vendas.
+2. Quando puderem, vão em **Configurações** e preencham as taxas de cada maquininha. Elas estão no app ou no contrato de cada uma.
+   Enquanto uma taxa não estiver cadastrada, a venda é lançada **sem desconto de taxa** (líquido = bruto) e o sistema avisa na tela.
+   As vendas lançadas antes de cadastrar a taxa continuam sem desconto.
 
 > Dica: no celular, abra o site e use "Adicionar à tela inicial" para ele ficar como um aplicativo.
 

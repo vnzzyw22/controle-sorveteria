@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { useActionState, useEffect, useRef, useState } from 'react'
 import { AnimatedBRL, FormaBadge, MoneyInput, Segmented, SubmitButton } from '@/components/ui'
 import { useToast } from '@/components/toast'
+import { PRAZO_PADRAO } from '@/lib/taxas'
 import { createEntrada, deleteEntrada } from '@/lib/actions'
 import type { Entrada, Maquininha, Taxa, Totais } from '@/lib/data'
 import { addDays, formatDataCurta, formatHora } from '@/lib/dates'
@@ -62,7 +63,8 @@ export function VendaForm({
   const taxaFaltando = usaMaquininha && !taxa
   const percentual = taxa?.percentual ?? 0
   const { taxaCentavos, liquidoCentavos } = calcularTaxa(valor, percentual)
-  const recebimento = addDays(data, usaMaquininha ? (taxa?.prazoDias ?? 0) : 0)
+  const prazoPadrao = forma === 'dinheiro' ? 0 : PRAZO_PADRAO[forma]
+  const recebimento = addDays(data, usaMaquininha ? (taxa?.prazoDias ?? prazoPadrao) : 0)
   const maqNome = maquininhas.find((m) => m.id === maqId)?.nome
 
   function escolherForma(f: FormaEntrada) {
@@ -262,7 +264,7 @@ export function VendaForm({
               <AlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" />
               <span>
                 A taxa de {forma === 'credito' ? `crédito ${parcelasEfetivas}x` : FORMA_LABEL[forma].toLowerCase()} da{' '}
-                {maqNome} ainda não foi cadastrada.{' '}
+                {maqNome} ainda não foi cadastrada. A venda será lançada sem desconto de taxa.{' '}
                 <Link href="/config" className="font-semibold underline">
                   Cadastrar taxa
                 </Link>
@@ -277,7 +279,7 @@ export function VendaForm({
           </p>
         )}
 
-        <SubmitButton pendingLabel="Lançando…" disabled={!valor || taxaFaltando} className="w-full py-4 text-lg">
+        <SubmitButton pendingLabel="Lançando…" disabled={!valor} className="w-full py-4 text-lg">
           Lançar venda {valor ? `de ${formatBRL(valor)}` : ''}
         </SubmitButton>
       </form>

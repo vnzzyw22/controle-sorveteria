@@ -108,6 +108,7 @@ export async function createEntrada(_prev: ActionResult | null, formData: FormDa
 
   let percentual = 0
   let prazoDias = 0
+  let semTaxa = false
 
   if (maquininhaId !== null) {
     if (!Number.isInteger(maquininhaId)) return fail('Maquininha inválida.')
@@ -120,12 +121,10 @@ export async function createEntrada(_prev: ActionResult | null, formData: FormDa
       'SELECT percentual, prazo_dias FROM taxas WHERE maquininha_id = $1 AND forma = $2 AND parcelas = $3',
       [maquininhaId, forma, parcelas],
     )
-    if (!taxa) {
-      const tipo = forma === 'credito' ? `crédito ${parcelas}x` : FORMA_LABEL[forma].toLowerCase()
-      return fail(`A taxa de ${tipo} da ${maq.nome} não está cadastrada. Cadastre em Configurações.`)
-    }
-    percentual = Number(taxa.percentual)
-    prazoDias = taxa.prazo_dias
+    // Taxa ainda não cadastrada: lança sem desconto (líquido = bruto) e avisa.
+    semTaxa = !taxa
+    percentual = taxa ? Number(taxa.percentual) : 0
+    prazoDias = taxa ? taxa.prazo_dias : PRAZO_PADRAO[forma as 'debito' | 'credito' | 'pix']
   } else {
     parcelas = 1
   }
@@ -149,7 +148,7 @@ export async function createEntrada(_prev: ActionResult | null, formData: FormDa
     ],
   )
   refresh()
-  return done('Venda lançada.', row.id)
+  return done(semTaxa ? 'Venda lançada sem taxa (taxa ainda não cadastrada).' : 'Venda lançada.', row.id)
 }
 
 export async function deleteEntrada(id: number): Promise<ActionResult> {
