@@ -8,7 +8,7 @@ import { useToast } from '@/components/toast'
 import { deleteEntrada } from '@/lib/actions'
 import type { CaixaDia } from '@/lib/data'
 import { formatDataCurta, formatHora } from '@/lib/dates'
-import { FORMAS_ENTRADA, FORMA_LABEL, formatBRL } from '@/lib/money'
+import { FORMAS_ENTRADA, FORMA_LABEL, formatBRL, type FormaEntrada } from '@/lib/money'
 
 const grupo = {
   hidden: { opacity: 0, y: 12 },
@@ -25,7 +25,7 @@ export function CaixaDoDia({ caixa, data }: { caixa: CaixaDia; data: string }) {
       className="space-y-6"
     >
       {/* Indicadores */}
-      <motion.section variants={grupo} aria-label="Resumo do dia" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <motion.section variants={grupo} aria-label="Resumo do dia" className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <Kpi label="Vendas (bruto)" cents={totais.brutoCentavos} hint={`${totais.quantidadeVendas} ${totais.quantidadeVendas === 1 ? 'venda' : 'vendas'}`} />
         <Kpi label="Taxas das maquininhas" cents={-totais.taxaCentavos} hint="descontadas" tone="text-saida" />
         <Kpi label="Entrou (líquido)" cents={totais.liquidoCentavos} tone="text-entrada" />
@@ -37,7 +37,7 @@ export function CaixaDoDia({ caixa, data }: { caixa: CaixaDia; data: string }) {
         </div>
       </motion.section>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
         {/* Por forma de pagamento */}
         <motion.section variants={grupo} aria-labelledby="formas-titulo" className="cartao p-5 sm:p-6">
           <h2 id="formas-titulo" className="font-display text-lg font-bold">
@@ -48,7 +48,7 @@ export function CaixaDoDia({ caixa, data }: { caixa: CaixaDia; data: string }) {
           ) : (
             <>
               <BarraSabores formas={caixa.formas} total={totais.brutoCentavos} />
-              <table className="mt-5 w-full text-sm">
+              <table className="mt-5 w-full text-[13px] sm:text-sm">
                 <thead>
                   <tr className="text-left text-xs uppercase tracking-wide text-cacau-suave">
                     <th className="pb-2 font-medium">Forma</th>
@@ -117,7 +117,7 @@ export function CaixaDoDia({ caixa, data }: { caixa: CaixaDia; data: string }) {
       </div>
 
       {/* Movimentações */}
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <motion.section variants={grupo} aria-labelledby="vendas-titulo" className="cartao p-5 sm:p-6">
           <div className="flex items-baseline justify-between gap-3">
             <h2 id="vendas-titulo" className="font-display text-lg font-bold">
@@ -185,7 +185,13 @@ function Kpi({ label, cents, hint, tone }: { label: string; cents: number; hint?
 }
 
 /** Faixa empilhada com a participação de cada forma nas vendas — como bolas de sorvete lado a lado. */
-function BarraSabores({ formas, total }: { formas: CaixaDia['formas']; total: number }) {
+export function BarraSabores({
+  formas,
+  total,
+}: {
+  formas: { forma: FormaEntrada; brutoCentavos: number }[]
+  total: number
+}) {
   const ordenadas = FORMAS_ENTRADA.map((f) => formas.find((x) => x.forma === f)).filter((x) => x && x.brutoCentavos > 0)
   return (
     <div className="mt-4">

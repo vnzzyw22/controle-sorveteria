@@ -4,6 +4,9 @@ import { cookies } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { requireAuth } from './auth'
+import { nomeDoMes } from './analise'
+import { CATEGORIAS_PADRAO, categoriaCanonica } from './categorias'
+import { getCategoriasUsadas } from './data'
 import { query, transaction } from './db'
 import { addDays, addMonths, hoje, isIsoDate } from './dates'
 import {
@@ -188,7 +191,9 @@ export async function createSaida(_prev: ActionResult | null, formData: FormData
     primeiroVencimento = condicao === 'parcelado' ? addMonths(data, 1) : data
   }
 
-  const categoria = text(formData, 'categoria', 60) || null
+  // "aluguel", "Aluguel " e "ALUGUEL" viram a mesma categoria, senão o resumo mostraria linhas repetidas.
+  const jaUsadas = await getCategoriasUsadas()
+  const categoria = categoriaCanonica(text(formData, 'categoria', 60), [...jaUsadas, ...CATEGORIAS_PADRAO])
   const fornecedor = text(formData, 'fornecedor', 120) || null
   const valores = dividirParcelas(valor, numParcelas)
   const today = hoje()
@@ -234,6 +239,23 @@ export async function setParcelaPaga(id: number, paga: boolean): Promise<ActionR
   refresh()
   if (!rows.length) return fail('Essa parcela já não existe.')
   return done(paga ? 'Parcela marcada como paga.' : 'Pagamento desfeito.')
+}
+
+// ---------- Meta do mês ----------
+
+export async function saveMeta(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
+  await requireAuth()
+  const valor = cents(formData, 'valor')
+  if (!valor) return fail('Informe o valor da meta de vendas do mês.')
+
+  const mes = hoje().slice(0, 7)
+  await query(
+    `INSERT INTO metas (mes, valor) VALUES ($1, $2)
+     ON CONFLICT (mes) DO UPDATE SET valor = EXCLUDED.valor`,
+    [mes, centsToDecimal(valor)],
+  )
+  refresh()
+  return done(`Meta de ${nomeDoMes(mes)} salva. Ela vale também para os próximos meses, até você mudar.`)
 }
 
 // ---------- Configurações ----------

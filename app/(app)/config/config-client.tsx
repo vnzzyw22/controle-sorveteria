@@ -113,60 +113,69 @@ function TaxasForm({ maquininha, taxas }: { maquininha: Maquininha; taxas: Taxa[
         Deixe a taxa em branco para as opções que vocês não usam. “Recebe em” é quantos dias o dinheiro leva para cair
         na conta (0 = no mesmo dia).
       </p>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[420px] text-sm">
-          <thead>
-            <tr className="text-left text-xs uppercase tracking-wide text-cacau-suave">
-              <th scope="col" className="pb-2 font-medium">Tipo</th>
-              <th scope="col" className="w-32 pb-2 font-medium">Taxa (%)</th>
-              <th scope="col" className="w-36 pb-2 font-medium">Recebe em (dias)</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-linha">
-            {LINHAS.map((l) => {
-              const t = valorDe(l.forma, l.parcelas)
-              return (
-                <tr key={l.key}>
-                  <th scope="row" className="py-2 pr-3 text-left font-medium">
-                    {l.label}
-                  </th>
-                  <td className="py-2 pr-3">
-                    <label className="sr-only" htmlFor={`${maquininha.id}-${l.key}-pct`}>
-                      Taxa de {l.label} (%)
-                    </label>
-                    <input
-                      id={`${maquininha.id}-${l.key}-pct`}
-                      name={`${l.key}_pct`}
-                      inputMode="decimal"
-                      autoComplete="off"
-                      defaultValue={t ? t.percentual.toFixed(2).replace('.', ',') : ''}
-                      placeholder="—"
-                      pattern="\d{1,2}([.,]\d{1,2})?"
-                      title="Use até duas casas decimais, por exemplo 3,15"
-                      className="campo tabular py-2! text-right"
-                    />
-                  </td>
-                  <td className="py-2">
-                    <label className="sr-only" htmlFor={`${maquininha.id}-${l.key}-prazo`}>
-                      Dias para receber {l.label}
-                    </label>
-                    <input
-                      id={`${maquininha.id}-${l.key}-prazo`}
-                      name={`${l.key}_prazo`}
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      max={365}
-                      defaultValue={t ? t.prazoDias : ''}
-                      placeholder={String(PRAZO_PADRAO[l.forma])}
-                      className="campo tabular py-2! text-right"
-                    />
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+      {/* Celular: cada tipo vira um bloco (nome em cima, campos lado a lado). Tela larga: tabela de 3 colunas. */}
+      <div>
+        <div
+          aria-hidden
+          className="hidden grid-cols-[minmax(0,1fr)_8rem_9rem] gap-3 pb-2 text-xs font-medium uppercase tracking-wide text-cacau-suave sm:grid"
+        >
+          <span>Tipo</span>
+          <span>Taxa (%)</span>
+          <span>Recebe em (dias)</span>
+        </div>
+        <div className="divide-y divide-linha">
+          {LINHAS.map((l) => {
+            const t = valorDe(l.forma, l.parcelas)
+            const idPct = `${maquininha.id}-${l.key}-pct`
+            const idPrazo = `${maquininha.id}-${l.key}-prazo`
+            return (
+              <div
+                key={l.key}
+                className="grid grid-cols-2 gap-x-3 gap-y-1.5 py-3 sm:grid-cols-[minmax(0,1fr)_8rem_9rem] sm:items-center sm:py-2"
+              >
+                <p className="col-span-2 text-sm font-semibold sm:col-span-1 sm:font-medium">{l.label}</p>
+                <div>
+                  <span aria-hidden className="mb-1 block text-xs text-cacau-suave sm:hidden">
+                    Taxa (%)
+                  </span>
+                  <label className="sr-only" htmlFor={idPct}>
+                    Taxa de {l.label} (%)
+                  </label>
+                  <input
+                    id={idPct}
+                    name={`${l.key}_pct`}
+                    inputMode="decimal"
+                    autoComplete="off"
+                    defaultValue={t ? t.percentual.toFixed(2).replace('.', ',') : ''}
+                    placeholder="—"
+                    pattern="\d{1,2}([.,]\d{1,2})?"
+                    title="Use até duas casas decimais, por exemplo 3,15"
+                    className="campo tabular py-2! text-right"
+                  />
+                </div>
+                <div>
+                  <span aria-hidden className="mb-1 block text-xs text-cacau-suave sm:hidden">
+                    Recebe em (dias)
+                  </span>
+                  <label className="sr-only" htmlFor={idPrazo}>
+                    Dias para receber {l.label}
+                  </label>
+                  <input
+                    id={idPrazo}
+                    name={`${l.key}_prazo`}
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    max={365}
+                    defaultValue={t ? t.prazoDias : ''}
+                    placeholder={String(PRAZO_PADRAO[l.forma])}
+                    className="campo tabular py-2! text-right"
+                  />
+                </div>
+              </div>
+            )
+          })}
+        </div>
       </div>
       <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
         <button

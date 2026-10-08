@@ -58,7 +58,7 @@ export function Abas({ aba }: { aba: (typeof ABAS)[number]['id'] }) {
               <Link
                 href={a.id === 'vendas' ? '/historico' : `/historico?aba=${a.id}`}
                 aria-current={active ? 'page' : undefined}
-                className={`relative block whitespace-nowrap px-4 py-3 text-[15px] font-semibold transition-colors ${
+                className={`relative block whitespace-nowrap px-3 py-3 text-sm sm:px-4 sm:text-[15px] font-semibold transition-colors ${
                   active ? 'text-framboesa' : 'text-cacau-suave hover:text-cacau'
                 }`}
               >
@@ -127,7 +127,7 @@ function Periodo({
         })}
       </div>
       <div className="flex items-end gap-2 lg:ml-auto">
-        <div>
+        <div className="min-w-0 flex-1">
           <label htmlFor="f-de" className="mb-1 block text-xs font-medium text-cacau-suave">
             De
           </label>
@@ -137,10 +137,10 @@ function Periodo({
             value={de}
             max={ate}
             onChange={(e) => e.target.value && aplicar({ de: e.target.value })}
-            className="campo py-2! text-sm"
+            className="campo min-w-0 py-2! text-sm"
           />
         </div>
-        <div>
+        <div className="min-w-0 flex-1">
           <label htmlFor="f-ate" className="mb-1 block text-xs font-medium text-cacau-suave">
             Até
           </label>
@@ -150,7 +150,7 @@ function Periodo({
             value={ate}
             min={de}
             onChange={(e) => e.target.value && aplicar({ ate: e.target.value })}
-            className="campo py-2! text-sm"
+            className="campo min-w-0 py-2! text-sm"
           />
         </div>
       </div>
@@ -382,7 +382,7 @@ export function VendasView({
         ) : (
           <>
             {/* Tabela no computador */}
-            <div className="cartao hidden overflow-x-auto md:block">
+            <div className="cartao hidden overflow-x-auto xl:block">
               <table className="w-full text-sm">
                 <thead className="border-b border-linha bg-creme-fundo/60 text-left text-xs uppercase tracking-wide text-cacau-suave">
                   <tr>
@@ -440,7 +440,7 @@ export function VendasView({
             </div>
 
             {/* Lista no celular */}
-            <ul className="cartao divide-y divide-linha md:hidden">
+            <ul className="cartao divide-y divide-linha xl:hidden">
               {vendas.map((v) => (
                 <li key={v.id}>
                   <button
@@ -455,7 +455,7 @@ export function VendasView({
                           {formatData(v.data)} · #{v.id}
                         </span>
                       </span>
-                      <span className="mt-1 block truncate text-sm text-cacau-suave">
+                      <span className="mt-1 block break-words text-sm text-cacau-suave">
                         {[v.maquininhaNome, v.descricao].filter(Boolean).join(' · ') || ' '}
                       </span>
                     </span>
@@ -595,7 +595,7 @@ export function SaidasView({
                   >
                     <span className="tabular hidden text-sm text-cacau-suave md:block">{formatData(s.data)}</span>
                     <span className="min-w-0">
-                      <span className="block truncate font-medium">{s.descricao}</span>
+                      <span className="block break-words font-medium">{s.descricao}</span>
                       <span className="mt-1 flex flex-wrap items-center gap-2 text-xs text-cacau-suave">
                         <span className="tabular md:hidden">{formatData(s.data)}</span>
                         <FormaBadge forma={s.forma} />
@@ -761,7 +761,7 @@ export function ContasView({
             type="date"
             value={filtro.ate}
             onChange={(e) => e.target.value && aplicar({ ate: e.target.value })}
-            className="campo py-2! text-sm"
+            className="campo min-w-0 py-2! text-sm"
           />
         </div>
       </div>
@@ -808,7 +808,7 @@ export function ContasView({
                           className="flex items-center justify-between gap-3 px-4 py-3"
                         >
                           <span className="min-w-0">
-                            <span className="block truncate font-medium">{p.descricao}</span>
+                            <span className="block break-words font-medium">{p.descricao}</span>
                             <span className="mt-1 flex flex-wrap items-center gap-2 text-xs text-cacau-suave">
                               <FormaBadge forma={p.forma} />
                               {p.totalParcelas > 1 && (

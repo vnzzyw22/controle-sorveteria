@@ -1,16 +1,22 @@
 import { ArrowDownCircle, ArrowUpCircle, ChevronLeft, ChevronRight } from 'lucide-react'
 import Link from 'next/link'
-import { getCaixaDoDia } from '@/lib/data'
+import { getCaixaDoDia, getContasAlerta, getPainelMeta } from '@/lib/data'
 import { addDays, formatData, formatDataExtenso, hoje, isIsoDate } from '@/lib/dates'
-import { formatBRL } from '@/lib/money'
 import { CaixaDoDia } from './caixa-do-dia'
+import { ContasParaPagar } from './contas-para-pagar'
+import { MetaMes } from './meta-mes'
 
 export default async function Page({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const params = await searchParams
   const today = hoje()
   const data = isIsoDate(params.data) && params.data <= today ? params.data : today
-  const caixa = await getCaixaDoDia(data)
   const ehHoje = data === today
+  // O aviso de contas olha sempre para o dia de hoje de verdade, mesmo ao consultar um dia antigo.
+  const [caixa, contas, painel] = await Promise.all([
+    getCaixaDoDia(data),
+    getContasAlerta(today),
+    ehHoje ? getPainelMeta(today) : null,
+  ])
 
   return (
     <>
@@ -68,37 +74,30 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
         </div>
       </div>
 
-      {caixa.atrasadas.quantidade > 0 && (
-        <Link
-          href="/historico?aba=contas"
-          className="mb-5 flex items-center justify-between gap-3 rounded-2xl bg-alerta-fundo px-4 py-3 text-sm text-alerta hover:brightness-[0.98]"
-        >
-          <span>
-            <strong className="font-semibold">
-              {caixa.atrasadas.quantidade} {caixa.atrasadas.quantidade === 1 ? 'conta vencida' : 'contas vencidas'}
-            </strong>{' '}
-            sem pagamento marcado ({formatBRL(caixa.atrasadas.totalCentavos)}).
-          </span>
-          <span className="shrink-0 font-semibold underline">Ver contas</span>
-        </Link>
-      )}
-
-      <div className="mb-6 grid grid-cols-2 gap-3 sm:flex">
+      <div className="mb-5 grid grid-cols-2 gap-3 sm:flex">
         <Link
           href="/vendas/nova"
-          className="flex items-center justify-center gap-2 rounded-xl bg-framboesa px-5 py-3 font-semibold text-white shadow-sm shadow-framboesa/30 transition-colors hover:bg-framboesa-escura"
+          className="flex items-center justify-center gap-2 rounded-xl bg-framboesa px-3 py-3 font-semibold sm:px-5 text-white shadow-sm shadow-framboesa/30 transition-colors hover:bg-framboesa-escura"
         >
           <ArrowDownCircle aria-hidden className="size-5" />
           Lançar venda
         </Link>
         <Link
           href="/saidas/nova"
-          className="flex items-center justify-center gap-2 rounded-xl border border-linha bg-superficie px-5 py-3 font-semibold text-cacau transition-colors hover:border-borda"
+          className="flex items-center justify-center gap-2 rounded-xl border border-linha bg-superficie px-3 py-3 font-semibold sm:px-5 text-cacau transition-colors hover:border-borda"
         >
           <ArrowUpCircle aria-hidden className="size-5" />
           Lançar saída
         </Link>
       </div>
+
+      <ContasParaPagar contas={contas} />
+
+      {painel && (
+        <div className="mb-6">
+          <MetaMes painel={painel} />
+        </div>
+      )}
 
       <CaixaDoDia caixa={caixa} data={data} />
     </>

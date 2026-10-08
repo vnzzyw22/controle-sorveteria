@@ -1,8 +1,20 @@
 import 'server-only'
+import {
+  calcularPainelMeta,
+  fimDoMes,
+  inicioDoPeriodo,
+  mesDe,
+  periodoMesAnterior,
+  ultimosMeses,
+  type DiaDaSemana,
+  type PainelMeta,
+} from './analise'
+import { chaveCategoria } from './categorias'
 import { query } from './db'
+import { addDays } from './dates'
 import type { FiltroContas, FiltroSaidas, FiltroVendas } from './filters'
 import { PAGE_SIZE } from './filters'
-import { decimalToCents, type FormaEntrada, type FormaSaida } from './money'
+import { FORMAS_ENTRADA, decimalToCents, type FormaEntrada, type FormaSaida } from './money'
 
 export interface Maquininha {
   id: number
@@ -260,14 +272,6 @@ export async function listSaidas(f: FiltroSaidas, opts: { all?: boolean } = {}) 
   }
 }
 
-export async function getCategorias(): Promise<string[]> {
-  const rows = await query<{ categoria: string }>(
-    `SELECT categoria FROM saidas WHERE categoria IS NOT NULL AND categoria <> ''
-     GROUP BY categoria ORDER BY COUNT(*) DESC LIMIT 30`,
-  )
-  return rows.map((r) => r.categoria)
-}
-
 // ---------- Parcelas (contas a pagar e saídas do dia) ----------
 
 interface ParcelaRow {
@@ -346,7 +350,7 @@ export interface ResumoMaquininha {
 }
 
 export async function getCaixaDoDia(data: string) {
-  const [entradas, porForma, porMaquininha, parcelas, [pendentes]] = await Promise.all([
+  const [entradas, porForma, porMaquininha, parcelas] = await Promise.all([
     query<EntradaRow>(
       `SELECT ${ENTRADA_COLUMNS} FROM entradas e LEFT JOIN maquininhas m ON m.id = e.maquininha_id
        WHERE e.data = $1 ORDER BY e.criado_em DESC, e.id DESC`,
@@ -365,11 +369,6 @@ export async function getCaixaDoDia(data: string) {
       [data],
     ),
     query<ParcelaRow>(`${PARCELA_SELECT} WHERE p.vencimento = $1 ORDER BY p.id`, [data]),
-    query<{ quantidade: string; total: string | null }>(
-      `SELECT COUNT(*) AS quantidade, SUM(valor) AS total FROM saidas_parcelas
-       WHERE pago_em IS NULL AND vencimento < $1`,
-      [data],
-    ),
   ])
 
   const formas: ResumoForma[] = porForma.map((r) => ({
@@ -404,8 +403,240 @@ export async function getCaixaDoDia(data: string) {
       saidasCentavos,
       saldoCentavos: liquidoCentavos - saidasCentavos,
     },
-    atrasadas: { quantidade: Number(pendentes.quantidade), totalCentavos: decimalToCents(pendentes.total) },
   }
 }
 
 export type CaixaDia = Awaited<ReturnType<typeof getCaixaDoDia>>
+
+// ---------- Contas a vencer (aviso da tela inicial) ----------
+
+export interface ContasAlerta {
+  vencidas: { quantidade: number; totalCentavos: number; itens: Parcela[] }
+  hoje: Parcela[]
+  amanha: Parcela[]
+}
+
+/** Parcelas ainda não pagas: vencidas, que vencem hoje e que vencem amanhã. */
+export async function getContasAlerta(today: string): Promise<ContasAlerta> {
+  const amanha = addDays(today, 1)
+  const [proximas, vencidas, [resumo]] = await Promise.all([
+    query<ParcelaRow>(
+      `${PARCELA_SELECT} WHERE p.pago_em IS NULL AND p.vencimento BETWEEN $1 AND $2 ORDER BY p.vencimento, p.id`,
+      [today, amanha],
+    ),
+    query<ParcelaRow>(
+      `${PARCELA_SELECT} WHERE p.pago_em IS NULL AND p.vencimento < $1 ORDER BY p.vencimento, p.id LIMIT 5`,
+      [today],
+    ),
+    query<{ quantidade: string; total: string | null }>(
+      `SELECT COUNT(*) AS quantidade, SUM(valor) AS total FROM saidas_parcelas WHERE pago_em IS NULL AND vencimento < $1`,
+      [today],
+    ),
+  ])
+  const parcelas = proximas.map(mapParcela)
+  return {
+    vencidas: {
+      quantidade: Number(resumo.quantidade),
+      totalCentavos: decimalToCents(resumo.total),
+      itens: vencidas.map(mapParcela),
+    },
+    hoje: parcelas.filter((p) => p.vencimento === today),
+    amanha: parcelas.filter((p) => p.vencimento === amanha),
+  }
+}
+
+// ---------- Meta do mês e ponto de equilíbrio ----------
+
+/** Meta em vigor no mês: a mais recente cadastrada até ele (a meta vale até ser trocada). */
+export async function getMeta(mes: string): Promise<{ valorCentavos: number; desde: string } | null> {
+  const [row] = await query<{ mes: string; valor: string }>(
+    'SELECT mes, valor FROM metas WHERE mes <= $1 ORDER BY mes DESC LIMIT 1',
+    [mes],
+  )
+  return row ? { valorCentavos: decimalToCents(row.valor), desde: row.mes } : null
+}
+
+/** Tudo que o painel de meta precisa para o mês de `today`. */
+export async function getPainelMeta(today: string): Promise<PainelMeta & { metaDesde: string | null }> {
+  const mes = mesDe(today)
+  const [[vendas], [contas], [taxa], meta] = await Promise.all([
+    query<{ bruto: string | null }>('SELECT SUM(valor_bruto) AS bruto FROM entradas WHERE data BETWEEN $1 AND $2', [
+      `${mes}-01`,
+      today,
+    ]),
+    query<{ total: string | null }>(
+      'SELECT SUM(valor) AS total FROM saidas_parcelas WHERE vencimento BETWEEN $1 AND $2',
+      [`${mes}-01`, fimDoMes(mes)],
+    ),
+    // Taxa média dos últimos 90 dias: mais estável do que a do mês, que começa com poucas vendas.
+    query<{ bruto: string | null; taxa: string | null }>(
+      'SELECT SUM(valor_bruto) AS bruto, SUM(valor_taxa) AS taxa FROM entradas WHERE data BETWEEN $1 AND $2',
+      [inicioDoPeriodo(today, 90), today],
+    ),
+    getMeta(mes),
+  ])
+  const brutoTaxa = decimalToCents(taxa.bruto)
+  const painel = calcularPainelMeta({
+    hoje: today,
+    vendidoCentavos: decimalToCents(vendas.bruto),
+    contasCentavos: decimalToCents(contas.total),
+    taxaMediaBp: brutoTaxa > 0 ? Math.round((decimalToCents(taxa.taxa) / brutoTaxa) * 10_000) : 0,
+    metaCentavos: meta?.valorCentavos ?? null,
+  })
+  return { ...painel, metaDesde: meta?.desde ?? null }
+}
+
+// ---------- Resumo: comparativos e gráficos ----------
+
+export interface MesResumo {
+  mes: string
+  brutoCentavos: number
+  liquidoCentavos: number
+  quantidade: number
+}
+
+export interface PeriodoResumo {
+  brutoCentavos: number
+  liquidoCentavos: number
+  quantidade: number
+}
+
+async function totaisVendas(de: string, ate: string): Promise<PeriodoResumo> {
+  const [r] = await query<{ bruto: string | null; liquido: string | null; quantidade: string }>(
+    `SELECT SUM(valor_bruto) AS bruto, SUM(valor_liquido) AS liquido, COUNT(*) AS quantidade
+     FROM entradas WHERE data BETWEEN $1 AND $2`,
+    [de, ate],
+  )
+  return {
+    brutoCentavos: decimalToCents(r.bruto),
+    liquidoCentavos: decimalToCents(r.liquido),
+    quantidade: Number(r.quantidade),
+  }
+}
+
+export interface FormaResumo {
+  forma: FormaEntrada
+  quantidade: number
+  brutoCentavos: number
+  taxaCentavos: number
+}
+
+export interface CategoriaResumo {
+  /** null = saídas sem categoria */
+  categoria: string | null
+  totalCentavos: number
+}
+
+export async function getResumo(today: string, de: string, ate: string) {
+  const mesAtual = mesDe(today)
+  const meses = ultimosMeses(mesAtual, 6)
+  const anterior = periodoMesAnterior(today)
+
+  const [atual, mesmoPeriodoAnterior, porMes, porDia, porForma, porMaquininha, porCategoria] = await Promise.all([
+    totaisVendas(`${mesAtual}-01`, today),
+    totaisVendas(anterior.de, anterior.ate),
+    query<{ mes: string; bruto: string; liquido: string; quantidade: string }>(
+      `SELECT to_char(data, 'YYYY-MM') AS mes, SUM(valor_bruto) AS bruto, SUM(valor_liquido) AS liquido, COUNT(*) AS quantidade
+       FROM entradas WHERE data BETWEEN $1 AND $2 GROUP BY 1`,
+      [`${meses[0]}-01`, today],
+    ),
+    query<{ dow: number; dias: string; vendas: string; bruto: string }>(
+      `SELECT EXTRACT(DOW FROM data)::int AS dow, COUNT(DISTINCT data) AS dias, COUNT(*) AS vendas, SUM(valor_bruto) AS bruto
+       FROM entradas WHERE data BETWEEN $1 AND $2 GROUP BY 1`,
+      [de, ate],
+    ),
+    query<{ forma: FormaEntrada; quantidade: string; bruto: string; taxa: string }>(
+      `SELECT forma, COUNT(*) AS quantidade, SUM(valor_bruto) AS bruto, SUM(valor_taxa) AS taxa
+       FROM entradas WHERE data BETWEEN $1 AND $2 GROUP BY forma`,
+      [de, ate],
+    ),
+    query<{ nome: string; quantidade: string; bruto: string; taxa: string }>(
+      `SELECT m.nome, COUNT(*) AS quantidade, SUM(e.valor_bruto) AS bruto, SUM(e.valor_taxa) AS taxa
+       FROM entradas e JOIN maquininhas m ON m.id = e.maquininha_id
+       WHERE e.data BETWEEN $1 AND $2 GROUP BY m.nome ORDER BY SUM(e.valor_bruto) DESC`,
+      [de, ate],
+    ),
+    // Saídas pelo dia do vencimento, como no caixa: compra de R$ 900 em 3x pesa R$ 300 por mês.
+    query<{ categoria: string; total: string }>(
+      `SELECT COALESCE(btrim(s.categoria), '') AS categoria, SUM(p.valor) AS total
+       FROM saidas_parcelas p JOIN saidas s ON s.id = p.saida_id
+       WHERE p.vencimento BETWEEN $1 AND $2 GROUP BY 1`,
+      [de, ate],
+    ),
+  ])
+
+  const serie: MesResumo[] = meses.map((mes) => {
+    const r = porMes.find((x) => x.mes === mes)
+    return {
+      mes,
+      brutoCentavos: decimalToCents(r?.bruto),
+      liquidoCentavos: decimalToCents(r?.liquido),
+      quantidade: Number(r?.quantidade ?? 0),
+    }
+  })
+
+  const diasDaSemana: DiaDaSemana[] = porDia.map((r) => ({
+    dow: r.dow,
+    dias: Number(r.dias),
+    vendas: Number(r.vendas),
+    brutoCentavos: decimalToCents(r.bruto),
+  }))
+
+  const formas: FormaResumo[] = FORMAS_ENTRADA.flatMap((forma) => {
+    const r = porForma.find((x) => x.forma === forma)
+    return r
+      ? [
+          {
+            forma,
+            quantidade: Number(r.quantidade),
+            brutoCentavos: decimalToCents(r.bruto),
+            taxaCentavos: decimalToCents(r.taxa),
+          },
+        ]
+      : []
+  })
+
+  // "Energia" e "energia" viram uma linha só; vale a grafia que mais pesou.
+  const grupos = new Map<string, { nome: string | null; maior: number; total: number }>()
+  for (const r of porCategoria) {
+    const valor = decimalToCents(r.total)
+    const chave = r.categoria ? chaveCategoria(r.categoria) : ''
+    const g = grupos.get(chave) ?? { nome: r.categoria || null, maior: 0, total: 0 }
+    if (valor > g.maior) {
+      g.maior = valor
+      g.nome = r.categoria || null
+    }
+    g.total += valor
+    grupos.set(chave, g)
+  }
+  const categorias: CategoriaResumo[] = [...grupos.values()]
+    .map((g) => ({ categoria: g.nome, totalCentavos: g.total }))
+    .sort((a, b) => b.totalCentavos - a.totalCentavos)
+
+  return {
+    mesAtual,
+    atual,
+    mesmoPeriodoAnterior,
+    periodoAnterior: anterior,
+    serie,
+    diasDaSemana,
+    formas,
+    maquininhas: porMaquininha.map<ResumoMaquininha>((r) => ({
+      nome: r.nome,
+      quantidade: Number(r.quantidade),
+      brutoCentavos: decimalToCents(r.bruto),
+      taxaCentavos: decimalToCents(r.taxa),
+    })),
+    categorias,
+  }
+}
+
+/** Categorias já usadas, da mais frequente para a menos (sem repetir "Aluguel" e "aluguel"). */
+export async function getCategoriasUsadas(): Promise<string[]> {
+  const rows = await query<{ categoria: string }>(
+    `SELECT btrim(categoria) AS categoria FROM saidas WHERE btrim(categoria) <> ''
+     GROUP BY btrim(categoria) ORDER BY COUNT(*) DESC, 1 LIMIT 40`,
+  )
+  const vistas = new Set<string>()
+  return rows.map((r) => r.categoria).filter((c) => !vistas.has(chaveCategoria(c)) && vistas.add(chaveCategoria(c)))
+}

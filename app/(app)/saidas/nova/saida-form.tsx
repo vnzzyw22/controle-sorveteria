@@ -5,6 +5,7 @@ import { useActionState, useEffect, useRef, useState } from 'react'
 import { MoneyInput, Segmented, SubmitButton } from '@/components/ui'
 import { useToast } from '@/components/toast'
 import { createSaida, deleteSaida } from '@/lib/actions'
+import { chaveCategoria } from '@/lib/categorias'
 import { addMonths, formatData } from '@/lib/dates'
 import { FORMAS_SAIDA, FORMA_LABEL, MAX_PARCELAS_SAIDA, dividirParcelas, formatBRL, type FormaSaida } from '@/lib/money'
 
@@ -83,25 +84,44 @@ export function SaidaForm({ hoje, categorias }: { hoje: string; categorias: stri
               autoFocus
             />
           </div>
+          <div className="sm:col-span-2">
+            <p id="categoria-titulo" className="rotulo">
+              Categoria <span className="font-normal text-cacau-suave">(mostra no Resumo para onde vai o dinheiro)</span>
+            </p>
+            <div role="group" aria-labelledby="categoria-titulo" className="flex flex-wrap gap-2">
+              {categorias.map((c) => {
+                const escolhida = chaveCategoria(c) === chaveCategoria(categoria)
+                return (
+                  <button
+                    key={c}
+                    type="button"
+                    aria-pressed={escolhida}
+                    onClick={() => setCategoria(escolhida ? '' : c)}
+                    className={`min-h-10 rounded-lg border px-3 text-sm font-medium transition-colors ${
+                      escolhida
+                        ? 'border-framboesa bg-framboesa-clara text-framboesa-escura'
+                        : 'border-linha bg-superficie text-cacau hover:border-borda'
+                    }`}
+                  >
+                    {c}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
           <div>
             <label htmlFor="categoria" className="rotulo">
-              Categoria
+              Outra categoria
             </label>
             <input
               id="categoria"
               name="categoria"
-              list="categorias"
               maxLength={60}
               value={categoria}
               onChange={(e) => setCategoria(e.target.value)}
-              placeholder="Insumos, aluguel…"
+              placeholder="Escolha acima ou digite aqui"
               className="campo"
             />
-            <datalist id="categorias">
-              {categorias.map((c) => (
-                <option key={c} value={c} />
-              ))}
-            </datalist>
           </div>
           <div>
             <label htmlFor="fornecedor" className="rotulo">

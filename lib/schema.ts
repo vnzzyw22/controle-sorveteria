@@ -62,6 +62,12 @@ CREATE TABLE IF NOT EXISTS saidas_parcelas (
 );
 CREATE INDEX IF NOT EXISTS saidas_parcelas_venc_idx ON saidas_parcelas (vencimento);
 
+-- Meta de vendas por mês ("AAAA-MM"). Vale também para os meses seguintes até a próxima meta cadastrada.
+CREATE TABLE IF NOT EXISTS metas (
+  mes   TEXT PRIMARY KEY CHECK (length(mes) = 7),
+  valor NUMERIC(10,2) NOT NULL CHECK (valor > 0)
+);
+
 INSERT INTO maquininhas (nome) VALUES ('Mercado Pago'), ('Stone'), ('PagSeguro')
 ON CONFLICT (nome) DO NOTHING;
 `

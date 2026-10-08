@@ -7,6 +7,10 @@ Fluxo de caixa simples para a sorveteria:
 - **Caixa do dia:** bruto, taxas, líquido, saídas e saldo, separados por forma de pagamento e por maquininha.
 - **Histórico:** consulta de vendas antigas, saídas e contas a pagar, com filtros por período, forma, maquininha e busca. Também exporta planilha (abre no Excel).
 - **Configurações:** taxas de cada maquininha (débito, Pix e crédito de 1x a 12x) e prazo de recebimento.
+- **Contas para pagar:** na tela inicial, aviso das contas vencidas e das que vencem hoje e amanhã, com botão "Paguei".
+- **Meta do mês e ponto de equilíbrio:** barra com quanto já foi vendido, quanto falta para a meta e quanto é preciso vender para pagar as contas do mês (a meta é definida em Configurações).
+- **Resumo:** mês contra mês, vendas por dia da semana, por forma de pagamento e por maquininha, e para onde vai o dinheiro (categorias das saídas).
+- **Categorias nas saídas:** botões de escolha rápida ao lançar uma saída; "aluguel" e "Aluguel" viram a mesma categoria.
 
 Funciona no navegador do celular e do computador. Custo: **R$ 0** (Neon grátis + Vercel grátis).
 
