@@ -19,7 +19,13 @@ const NOMES_URL = ['DATABASE_URL', 'POSTGRES_URL', 'NEON_DATABASE_URL', 'DATABAS
 export function databaseEnvName(): string | null {
   for (const nome of NOMES_URL) if (process.env[nome]) return nome
   const prefixado = Object.keys(process.env).find((k) => k.endsWith('_DATABASE_URL') && process.env[k])
-  return prefixado ?? null
+  if (prefixado) return prefixado
+  // Último recurso: qualquer variável cujo valor seja um endereço Postgres (ex.: STORAGE_URL),
+  // preferindo a conexão com pooler.
+  const candidatas = Object.keys(process.env)
+    .filter((k) => /^postgres(ql)?:\/\//.test(process.env[k] ?? ''))
+    .sort((a, b) => Number(/UNPOOLED|NON_POOLING/.test(a)) - Number(/UNPOOLED|NON_POOLING/.test(b)))
+  return candidatas[0] ?? null
 }
 
 function getPool(): Pool {
