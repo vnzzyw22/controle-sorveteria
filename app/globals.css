@@ -1,0 +1,86 @@
+@import 'tailwindcss';
+
+/*
+  Paleta "balcão": fundo creme de casquinha, texto cacau, ação framboesa.
+  Cada forma de pagamento tem um "sabor" (fundo pastel + texto escuro, contraste >= 6:1),
+  sempre acompanhado do nome — a cor nunca é a única pista.
+*/
+@theme {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-bricolage), var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+
+  --color-creme: #fbf6ee;
+  --color-creme-fundo: #f4ecdf;
+  --color-superficie: #ffffff;
+  --color-linha: #eadfcf;
+  --color-borda: #9a8574;
+  --color-cacau: #2b1e17;
+  --color-cacau-suave: #6e5b4e;
+
+  --color-framboesa: #a3164a;
+  --color-framboesa-escura: #85103b;
+  --color-framboesa-clara: #f9dce3;
+
+  --color-entrada: #2e6b3a;
+  --color-saida: #b0461c;
+  --color-alerta: #9a5b00;
+  --color-alerta-fundo: #fdf0d5;
+
+  --color-dinheiro: #2f5a1f;
+  --color-dinheiro-fundo: #e3efd3;
+  --color-pix: #145a4e;
+  --color-pix-fundo: #d5f0ea;
+  --color-debito: #6b4e0a;
+  --color-debito-fundo: #f8ebc4;
+  --color-credito: #8c1d3f;
+  --color-credito-fundo: #f9dce3;
+  --color-boleto: #3d4451;
+  --color-boleto-fundo: #e4e7ee;
+
+  --radius-bola: 1.75rem;
+}
+
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    @apply bg-creme font-sans text-cacau antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-framboesa);
+    outline-offset: 2px;
+  }
+  input,
+  select,
+  textarea,
+  button {
+    font: inherit;
+  }
+  /* Ícone do calendário com a cor do texto */
+  input[type='date']::-webkit-calendar-picker-indicator {
+    opacity: 0.6;
+  }
+}
+
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+@utility campo {
+  @apply w-full rounded-xl border border-borda bg-superficie px-3.5 py-2.5 text-[15px] text-cacau placeholder:text-cacau-suave/70 transition-colors;
+  &:hover {
+    @apply border-cacau-suave;
+  }
+  &:focus {
+    @apply border-framboesa outline-none ring-2 ring-framboesa/25;
+  }
+}
+
+@utility rotulo {
+  @apply mb-1.5 block text-sm font-medium text-cacau;
+}
+
+@utility cartao {
+  @apply rounded-2xl border border-linha bg-superficie;
+}
