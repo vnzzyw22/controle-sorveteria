@@ -4,6 +4,7 @@ import { getMaquininhas, getMeta, getTaxas } from '@/lib/data'
 import { hoje } from '@/lib/dates'
 import { PageHeader } from '@/components/ui'
 import { ConfigClient } from './config-client'
+import { MercadoPagoPainel } from './mercadopago-painel'
 import { MetaForm } from './meta-form'
 
 export const metadata: Metadata = { title: 'Configurações' }
@@ -23,6 +24,7 @@ export default async function ConfigPage() {
           <h2 className="mb-3 font-display text-lg font-bold">Taxas das maquininhas</h2>
           <ConfigClient maquininhas={maquininhas} taxas={taxas} />
         </div>
+        <MercadoPagoPainel />
       </div>
     </>
   )

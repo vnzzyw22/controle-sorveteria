@@ -68,6 +68,33 @@ CREATE TABLE IF NOT EXISTS metas (
   valor NUMERIC(10,2) NOT NULL CHECK (valor > 0)
 );
 
+-- Integração com a maquininha Mercado Pago (Point).
+-- Venda que veio da maquininha guarda o id do pagamento no Mercado Pago: o mesmo pagamento nunca entra duas vezes.
+ALTER TABLE entradas ADD COLUMN IF NOT EXISTS origem TEXT NOT NULL DEFAULT 'manual';
+ALTER TABLE entradas ADD COLUMN IF NOT EXISTS mp_payment_id TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS entradas_mp_payment_idx ON entradas (mp_payment_id) WHERE mp_payment_id IS NOT NULL;
+
+-- Cobranças enviadas do sistema para a maquininha (Orders API).
+CREATE TABLE IF NOT EXISTS mp_cobrancas (
+  order_id           TEXT PRIMARY KEY,
+  external_reference TEXT NOT NULL UNIQUE,
+  valor              NUMERIC(10,2) NOT NULL,
+  status             TEXT NOT NULL,
+  entrada_id         INTEGER REFERENCES entradas(id) ON DELETE SET NULL,
+  criado_em          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  atualizado_em      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Avisos (webhooks) recebidos do Mercado Pago, para conferir em Configurações o que está chegando.
+CREATE TABLE IF NOT EXISTS mp_eventos (
+  id          INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  recebido_em TIMESTAMPTZ NOT NULL DEFAULT now(),
+  tipo        TEXT NOT NULL,
+  recurso_id  TEXT,
+  resultado   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS mp_eventos_recebido_idx ON mp_eventos (recebido_em DESC);
+
 INSERT INTO maquininhas (nome) VALUES ('Mercado Pago'), ('Stone'), ('PagSeguro')
 ON CONFLICT (nome) DO NOTHING;
 `

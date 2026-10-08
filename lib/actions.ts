@@ -8,6 +8,7 @@ import { requireAuth } from './auth'
 import { nomeDoMes } from './analise'
 import { CATEGORIAS_PADRAO, categoriaCanonica } from './categorias'
 import { getCategoriasUsadas } from './data'
+import { atualizarCobranca, cancelarCobranca, criarCobranca, mpPronto, sincronizarDia } from './mercadopago'
 import { query, transaction } from './db'
 import { addDays, addMonths, hoje, isIsoDate } from './dates'
 import {
@@ -513,4 +514,90 @@ export async function setMaquininhaAtiva(id: number, ativa: boolean): Promise<Ac
   await query('UPDATE maquininhas SET ativa = $2 WHERE id = $1', [id, ativa])
   refresh()
   return done(ativa ? 'Maquininha reativada.' : 'Maquininha desativada. O histórico dela continua salvo.')
+}
+
+// ---------- Maquininha Mercado Pago ----------
+
+export interface ResultadoCobranca {
+  ok: boolean
+  message: string
+  orderId?: string
+  status?: string
+  final?: boolean
+}
+
+/** Envia o valor da venda para a maquininha. A venda só é lançada quando o cliente paga. */
+export async function cobrarNaMaquininha(
+  valorCentavos: number,
+  forma: FormaEntrada,
+  parcelas: number,
+): Promise<ResultadoCobranca> {
+  await requireAuth()
+  if (!mpPronto()) return { ok: false, message: 'O Mercado Pago ainda não foi configurado (falta o token).' }
+  if (!Number.isInteger(valorCentavos) || valorCentavos <= 0 || valorCentavos >= 100_000_000) {
+    return { ok: false, message: 'Informe o valor da venda.' }
+  }
+  if (forma === 'dinheiro' || !FORMAS_ENTRADA.includes(forma)) return { ok: false, message: 'Forma de pagamento inválida.' }
+  const n = forma === 'credito' ? Math.min(Math.max(Math.trunc(parcelas) || 1, 1), MAX_PARCELAS_CREDITO) : 1
+  try {
+    const orderId = await criarCobranca(valorCentavos, forma, n)
+    return { ok: true, message: 'Cobrança enviada para a maquininha.', orderId, status: 'created', final: false }
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : 'Não foi possível enviar a cobrança.' }
+  }
+}
+
+const MENSAGEM_STATUS: Record<string, string> = {
+  created: 'Aguardando o cliente pagar na maquininha…',
+  at_terminal: 'Cliente pagando na maquininha…',
+  processed: 'Pago! Venda lançada no caixa.',
+  canceled: 'Cobrança cancelada.',
+  cancelled: 'Cobrança cancelada.',
+  expired: 'A cobrança expirou sem pagamento.',
+  failed: 'O pagamento não foi aprovado.',
+  refunded: 'Pagamento estornado.',
+}
+
+export async function acompanharCobranca(orderId: string): Promise<ResultadoCobranca> {
+  await requireAuth()
+  try {
+    const r = await atualizarCobranca(String(orderId))
+    if (r.status === 'processed') refresh()
+    return {
+      ok: true,
+      orderId,
+      status: r.status,
+      final: r.final,
+      message: MENSAGEM_STATUS[r.status] ?? `Situação da cobrança: ${r.status}`,
+    }
+  } catch (error) {
+    return { ok: false, orderId, message: error instanceof Error ? error.message : 'Não foi possível consultar a cobrança.' }
+  }
+}
+
+export async function cancelarCobrancaMaquininha(orderId: string): Promise<ResultadoCobranca> {
+  await requireAuth()
+  try {
+    await cancelarCobranca(String(orderId))
+    return { ok: true, orderId, status: 'canceled', final: true, message: 'Cobrança cancelada.' }
+  } catch (error) {
+    return { ok: false, orderId, message: error instanceof Error ? error.message : 'Não foi possível cancelar.' }
+  }
+}
+
+/** Botão de Configurações: busca as vendas feitas direto na maquininha hoje que ainda não estão no sistema. */
+export async function buscarVendasDaMaquininha(): Promise<ActionResult> {
+  await requireAuth()
+  if (!mpPronto()) return fail('O Mercado Pago ainda não foi configurado (falta o token).')
+  try {
+    const r = await sincronizarDia(hoje())
+    refresh()
+    return done(
+      r.lancadas
+        ? `${r.lancadas} ${r.lancadas === 1 ? 'venda lançada' : 'vendas lançadas'} da maquininha.`
+        : 'Nenhuma venda nova da maquininha hoje.',
+    )
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : 'Não foi possível buscar as vendas.')
+  }
 }

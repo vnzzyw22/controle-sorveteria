@@ -13,6 +13,7 @@ import type { Entrada, Maquininha, Taxa, Totais } from '@/lib/data'
 import { addDays, formatData, formatDataCurta, formatHora } from '@/lib/dates'
 import { FORMA_LABEL, MAX_PARCELAS_CREDITO, calcularTaxa, formatBRL, type FormaEntrada } from '@/lib/money'
 import { linkEditarVenda } from '@/lib/voltar'
+import { CobrancaMaquininha } from './cobranca-maquininha'
 
 const ULTIMA_MAQ = 'sorveteria:ultima-maquininha'
 
@@ -30,6 +31,7 @@ export function VendaForm({
   recentes,
   totalHoje,
   edicao,
+  maquininhaMP = false,
 }: {
   hoje: string
   maquininhas: Maquininha[]
@@ -38,6 +40,8 @@ export function VendaForm({
   totalHoje: Totais
   /** Presente na tela de editar: a venda a mudar e para onde voltar depois de salvar. */
   edicao?: { entrada: Entrada; voltar: string }
+  /** Integração com a maquininha Mercado Pago configurada (token presente). */
+  maquininhaMP?: boolean
 }) {
   const [state, action] = useActionState(edicao ? updateEntrada : createEntrada, null)
   const toast = useToast()
@@ -302,6 +306,17 @@ export function VendaForm({
         <SubmitButton pendingLabel={edicao ? 'Salvando…' : 'Lançando…'} disabled={!valor} className="w-full py-4 text-lg">
           {edicao ? 'Salvar alterações' : `Lançar venda ${valor ? `de ${formatBRL(valor)}` : ''}`}
         </SubmitButton>
+        {maquininhaMP && !edicao && usaMaquininha && maqNome === 'Mercado Pago' && (
+          <CobrancaMaquininha
+            valor={valor}
+            forma={forma}
+            parcelas={parcelasEfetivas}
+            onPaga={() => {
+              setValor(0)
+              setDescricao('')
+            }}
+          />
+        )}
         {edicao && (
           <Link href={edicao.voltar} className="block text-center text-sm font-semibold text-cacau-suave hover:text-cacau">
             Cancelar e voltar

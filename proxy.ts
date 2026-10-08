@@ -14,5 +14,6 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!login|_next/static|_next/image|favicon.ico|icon.svg).*)'],
+  // O webhook do Mercado Pago fica de fora: ele se protege pela assinatura (app/api/mercadopago/webhook).
+  matcher: ['/((?!login|api/mercadopago/webhook|_next/static|_next/image|favicon.ico|icon.svg).*)'],
 }

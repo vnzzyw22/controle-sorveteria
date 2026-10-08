@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { getMaquininhas, getTaxas, listVendas } from '@/lib/data'
 import { hoje } from '@/lib/dates'
+import { mpPronto } from '@/lib/mercadopago'
 import { PageHeader } from '@/components/ui'
 import { VendaForm } from './venda-form'
 
@@ -22,6 +23,7 @@ export default async function NovaVendaPage() {
         taxas={taxas}
         recentes={recentes.vendas.slice(0, 6)}
         totalHoje={recentes.totais}
+        maquininhaMP={mpPronto()}
       />
     </>
   )
