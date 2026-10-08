@@ -43,6 +43,8 @@ Não precisa criar tabela nenhuma: o sistema cria tudo sozinho no primeiro acess
    Enquanto uma taxa não estiver cadastrada, a venda é lançada **sem desconto de taxa** (líquido = bruto) e o sistema avisa na tela.
    As vendas lançadas antes de cadastrar a taxa continuam sem desconto.
 
+> Se algo der errado com o banco, abra `/diagnostico` no site (ex.: `seusite.vercel.app/diagnostico`). A página mostra o erro exato.
+
 > Dica: no celular, abra o site e use "Adicionar à tela inicial" para ele ficar como um aplicativo.
 
 ---

@@ -12,9 +12,20 @@ declare global {
   var __sorveteriaSchema: Promise<void> | undefined
 }
 
+// Nomes que a integração Neon do Vercel pode criar. Se for escolhido um prefixo
+// personalizado (ex.: STORAGE_DATABASE_URL), qualquer variável terminada em _DATABASE_URL serve.
+const NOMES_URL = ['DATABASE_URL', 'POSTGRES_URL', 'NEON_DATABASE_URL', 'DATABASE_URL_UNPOOLED', 'POSTGRES_URL_NON_POOLING']
+
+export function databaseEnvName(): string | null {
+  for (const nome of NOMES_URL) if (process.env[nome]) return nome
+  const prefixado = Object.keys(process.env).find((k) => k.endsWith('_DATABASE_URL') && process.env[k])
+  return prefixado ?? null
+}
+
 function getPool(): Pool {
   if (!globalThis.__sorveteriaPool) {
-    const connectionString = process.env.DATABASE_URL
+    const nome = databaseEnvName()
+    const connectionString = nome ? process.env[nome] : undefined
     if (!connectionString) {
       throw new Error('DATABASE_URL não configurada. Veja o README para conectar o Neon.')
     }
@@ -71,5 +82,19 @@ export async function transaction<T>(fn: (client: PoolClient) => Promise<T>): Pr
     throw error
   } finally {
     client.release()
+  }
+}
+
+/** Testa a conexão e a criação das tabelas; usado pela página de diagnóstico. */
+export async function diagnosticoBanco(): Promise<{ ok: true; variavel: string } | { ok: false; erro: string }> {
+  const nome = databaseEnvName()
+  if (!nome) return { ok: false, erro: 'Nenhuma variável DATABASE_URL encontrada no servidor.' }
+  try {
+    await query('SELECT 1')
+    return { ok: true, variavel: nome }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    // Nunca devolve a connection string, só a mensagem do erro.
+    return { ok: false, erro: `${nome}: ${msg.replace(/postgres(ql)?:\/\/\S+/g, '[url]')}` }
   }
 }
