@@ -63,6 +63,8 @@ CREATE TABLE IF NOT EXISTS saidas_parcelas (
   UNIQUE (saida_id, numero)
 );
 CREATE INDEX IF NOT EXISTS saidas_parcelas_venc_idx ON saidas_parcelas (vencimento);
+-- Quando o pagamento foi registrado no sistema (o pago_em guarda só o dia). Usado pelo saldo da empresa.
+ALTER TABLE saidas_parcelas ADD COLUMN IF NOT EXISTS pago_registrado_em TIMESTAMPTZ;
 
 -- Meta de vendas por mês ("AAAA-MM"). Vale também para os meses seguintes até a próxima meta cadastrada.
 CREATE TABLE IF NOT EXISTS metas (

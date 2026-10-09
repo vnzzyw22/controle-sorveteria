@@ -26,9 +26,9 @@ export function SaldoForm({ hoje, atual }: { hoje: string; atual: { valorCentavo
         Saldo da empresa
       </h2>
       <p className="mt-1 text-sm text-cacau-suave">
-        Quanto a empresa tem (caixa + conta) no fim do dia escolhido. É o ponto de partida do saldo que aparece no Caixa:
-        as vendas e os pagamentos lançados <strong>depois</strong> desse dia entram na conta sozinhos. Não conta como venda
-        e não mexe no resumo.
+        Quanto a empresa tem agora (caixa + conta). É o ponto de partida do saldo que aparece no Caixa: tudo o que for
+        lançado <strong>depois de salvar</strong> (vendas e pagamentos, inclusive no mesmo dia) entra na conta sozinho.
+        Não conta como venda e não mexe no resumo.
         {atual && ` Atual: ${formatBRL(atual.valorCentavos)} em ${formatData(atual.data)}.`}
       </p>
       <form action={action} className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
@@ -40,7 +40,7 @@ export function SaldoForm({ hoje, atual }: { hoje: string; atual: { valorCentavo
         </div>
         <div className="sm:w-48">
           <label htmlFor="saldo-data" className="rotulo">
-            No fim do dia
+            Data do saldo
           </label>
           <input
             id="saldo-data"

@@ -697,27 +697,36 @@ export async function ultimaEntradaId(): Promise<number> {
 // ---------- Saldo da empresa ----------
 
 export interface SaldoEmpresa {
-  /** Saldo informado em Ajustes, no fim do dia `data`. */
+  /** Saldo informado em Ajustes no dia `data` (vale a partir do momento em que foi salvo). */
   inicialCentavos: number
   data: string
-  /** Vendas depois de `data` cujo dinheiro já caiu (líquido, sem as taxas). */
+  /** Vendas lançadas depois do saldo cujo dinheiro já caiu (líquido, sem as taxas). */
   entradasCentavos: number
-  /** Pagamentos marcados como pagos depois de `data`. */
+  /** Pagamentos registrados depois do saldo. */
   saidasCentavos: number
-  /** Vendas depois de `data` cujo dinheiro ainda vai cair (cartão a receber). */
+  /** Vendas lançadas depois do saldo cujo dinheiro ainda vai cair (cartão a receber). */
   aReceberCentavos: number
   atualCentavos: number
 }
 
 export async function getSaldoEmpresa(hoje: string): Promise<SaldoEmpresa | null> {
-  const [base] = await query<{ valor: string; data: string }>('SELECT valor, data FROM saldo_inicial WHERE id = 1')
+  const [base] = await query<{ valor: string; data: string; salvo_em: Date }>(
+    'SELECT valor, data, atualizado_em AS salvo_em FROM saldo_inicial WHERE id = 1',
+  )
   if (!base) return null
+  // Entra na conta o que aconteceu depois do saldo: dias seguintes, ou o mesmo dia mas lançado depois de salvar.
   const [mov] = await query<{ recebido: string | null; a_receber: string | null; pago: string | null }>(
-    `SELECT
-       (SELECT SUM(valor_liquido) FROM entradas WHERE data > $1 AND data <= $2 AND data_recebimento <= $2) AS recebido,
-       (SELECT SUM(valor_liquido) FROM entradas WHERE data > $1 AND data <= $2 AND data_recebimento > $2) AS a_receber,
-       (SELECT SUM(valor) FROM saidas_parcelas WHERE pago_em > $1 AND pago_em <= $2) AS pago`,
-    [base.data, hoje],
+    `WITH vendas AS (
+       SELECT valor_liquido, data_recebimento FROM entradas
+       WHERE data <= $2 AND (data > $1 OR (data = $1 AND criado_em > $3))
+     )
+     SELECT
+       (SELECT SUM(valor_liquido) FROM vendas WHERE data_recebimento <= $2) AS recebido,
+       (SELECT SUM(valor_liquido) FROM vendas WHERE data_recebimento > $2) AS a_receber,
+       (SELECT SUM(p.valor) FROM saidas_parcelas p JOIN saidas s ON s.id = p.saida_id
+        WHERE p.pago_em <= $2
+          AND (p.pago_em > $1 OR (p.pago_em = $1 AND COALESCE(p.pago_registrado_em, s.criado_em) > $3))) AS pago`,
+    [base.data, hoje, base.salvo_em],
   )
   const inicialCentavos = decimalToCents(base.valor)
   const entradasCentavos = decimalToCents(mov.recebido)

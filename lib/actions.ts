@@ -306,7 +306,8 @@ async function gravarParcelas(client: PoolClient, saidaId: number, d: DadosSaida
     const vencimento = addMonths(d.primeiroVencimento, i)
     const pagoEm = d.condicao === 'a_vista' && vencimento <= today ? vencimento : null
     await client.query(
-      `INSERT INTO saidas_parcelas (saida_id, numero, vencimento, valor, pago_em) VALUES ($1, $2, $3, $4, $5)`,
+      `INSERT INTO saidas_parcelas (saida_id, numero, vencimento, valor, pago_em, pago_registrado_em)
+       VALUES ($1, $2, $3, $4, $5, CASE WHEN $5::date IS NULL THEN NULL ELSE now() END)`,
       [saidaId, i + 1, vencimento, centsToDecimal(valores[i]), pagoEm],
     )
   }
@@ -393,7 +394,8 @@ export async function setParcelaPaga(id: number, paga: boolean): Promise<ActionR
   await requireAuth()
   if (!Number.isInteger(id)) return fail('Parcela inválida.')
   const rows = await query<{ id: number }>(
-    'UPDATE saidas_parcelas SET pago_em = $2 WHERE id = $1 RETURNING id',
+    `UPDATE saidas_parcelas SET pago_em = $2, pago_registrado_em = CASE WHEN $2::date IS NULL THEN NULL ELSE now() END
+     WHERE id = $1 RETURNING id`,
     [id, paga ? hoje() : null],
   )
   refresh()
