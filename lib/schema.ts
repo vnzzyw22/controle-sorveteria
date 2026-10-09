@@ -123,7 +123,7 @@ CREATE TABLE IF NOT EXISTS outras_entradas (
 );
 CREATE INDEX IF NOT EXISTS outras_entradas_data_idx ON outras_entradas (data DESC, id DESC);
 
--- Controle da busca automática de vendas (no máximo uma a cada 20 segundos).
+-- Controle da busca automática de vendas (no máximo uma a cada 10 segundos).
 CREATE TABLE IF NOT EXISTS mp_estado (
   chave TEXT PRIMARY KEY,
   valor TIMESTAMPTZ NOT NULL

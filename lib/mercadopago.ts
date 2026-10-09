@@ -382,13 +382,13 @@ export async function sincronizarDia(
 }
 
 /**
- * Busca automática chamada pelas telas abertas (Caixa e Venda). Roda no máximo a cada 20 segundos,
+ * Busca automática chamada por qualquer tela aberta. Roda no máximo a cada 10 segundos,
  * mesmo com vários aparelhos abertos, e só registra aviso quando algo novo aconteceu.
  */
 export async function sincronizarSeNecessario(dia: string): Promise<number> {
   const [vez] = await query<{ chave: string }>(
     `INSERT INTO mp_estado (chave, valor) VALUES ('busca', now())
-     ON CONFLICT (chave) DO UPDATE SET valor = now() WHERE mp_estado.valor < now() - interval '20 seconds'
+     ON CONFLICT (chave) DO UPDATE SET valor = now() WHERE mp_estado.valor < now() - interval '10 seconds'
      RETURNING chave`,
   )
   if (!vez) return 0

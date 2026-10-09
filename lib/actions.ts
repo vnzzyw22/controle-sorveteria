@@ -635,7 +635,7 @@ export async function trocarModoMaquininha(modo: ModoMaquininha): Promise<Action
 }
 
 /**
- * Chamada a cada 30 s pelas telas Caixa e Venda: puxa as vendas novas da maquininha (se o Mercado Pago estiver
+ * Chamada a cada 15 s por qualquer tela aberta: puxa as vendas novas da maquininha (se o Mercado Pago estiver
  * configurado) e devolve o número da última venda, para a tela saber se precisa se atualizar.
  */
 export async function verificarVendasNovas(): Promise<{ ultimaId: number }> {
