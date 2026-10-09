@@ -99,3 +99,18 @@ export function acharTerminal<T extends { id: string }>(terminais: T[], configur
     null
   )
 }
+
+/** Prefixo da referência das cobranças enviadas por este sistema para a maquininha. */
+export const PREFIXO_REF = 'sorveteria-'
+
+/**
+ * Só vira venda o que foi pago no balcão:
+ * - POINT: cartão (crédito/débito) passado na maquininha;
+ * - INSTORE: Pix/QR pago na loja (é assim que chega o Pix feito pela maquininha);
+ * - cobranças enviadas por este sistema.
+ * Transferências e Pix recebidos na conta por outros caminhos ficam de fora.
+ */
+export function veioDoBalcao(p: PagamentoMP): boolean {
+  const origem = p.point_of_interaction?.type ?? ''
+  return /POINT|INSTORE/i.test(origem) || (p.external_reference ?? '').startsWith(PREFIXO_REF)
+}

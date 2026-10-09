@@ -4,7 +4,7 @@ import { MercadoPagoConfig, Order, Payment, Point } from 'mercadopago'
 import { revalidatePath } from 'next/cache'
 import { query } from './db'
 import { calcularTaxa, centsToDecimal, decimalToCents, type FormaEntrada } from './money'
-import { acharTerminal, dataBrasilia, vendaDoPagamento, type PagamentoMP } from './mp-mapa'
+import { PREFIXO_REF, acharTerminal, dataBrasilia, veioDoBalcao, vendaDoPagamento, type PagamentoMP } from './mp-mapa'
 import { addDays, hoje } from './dates'
 import { produtoPeloValor } from './produtos'
 
@@ -14,7 +14,6 @@ import { produtoPeloValor } from './produtos'
 // Em todos os caminhos o id do pagamento fica gravado na venda, então o mesmo pagamento nunca entra duas vezes.
 
 const API = 'https://api.mercadopago.com'
-const PREFIXO_REF = 'sorveteria-'
 
 export function mpConfig() {
   return {
@@ -119,11 +118,6 @@ async function idMaquininhaMercadoPago(): Promise<number> {
   return m.id
 }
 
-/** Só entra o que veio da maquininha: pagamento feito na Point ou cobrança enviada por este sistema. */
-function veioDaMaquininha(p: PagamentoMP): boolean {
-  return /POINT/i.test(p.point_of_interaction?.type ?? '') || (p.external_reference ?? '').startsWith(PREFIXO_REF)
-}
-
 /** Lança (ou remove, se foi estornado) a venda de um pagamento. Devolve o que aconteceu, em texto. */
 export async function registrarPagamento(p: PagamentoMP, exigirMaquininha = true): Promise<{ texto: string; entradaId?: number }> {
   const id = p.id === undefined ? '' : String(p.id)
@@ -131,7 +125,7 @@ export async function registrarPagamento(p: PagamentoMP, exigirMaquininha = true
     const removidas = await query('DELETE FROM entradas WHERE mp_payment_id = $1 RETURNING id', [id])
     return { texto: removidas.length ? `pagamento ${p.status}: venda removida` : `pagamento ${p.status}: nada a remover` }
   }
-  if (exigirMaquininha && !veioDaMaquininha(p)) {
+  if (exigirMaquininha && !veioDoBalcao(p)) {
     return { texto: `ignorado: não veio da maquininha (origem ${p.point_of_interaction?.type ?? 'desconhecida'})` }
   }
   const v = vendaDoPagamento(p)

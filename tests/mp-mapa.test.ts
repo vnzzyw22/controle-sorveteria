@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { acharTerminal, dataBrasilia, formaDoPagamento, vendaDoPagamento } from '../lib/mp-mapa.ts'
+import { acharTerminal, dataBrasilia, formaDoPagamento, veioDoBalcao, vendaDoPagamento } from '../lib/mp-mapa.ts'
 
 test('Mercado Pago: tipo de pagamento vira forma do sistema', () => {
   assert.equal(formaDoPagamento('credit_card'), 'credito')
@@ -69,4 +69,12 @@ test('Mercado Pago: acha a maquininha pelo número da etiqueta ou pelo id comple
   assert.equal(acharTerminal(lista, 'PAX_A910__SMARTPOS1495357742')?.id, 'PAX_A910__SMARTPOS1495357742')
   assert.equal(acharTerminal(lista, '999'), null)
   assert.equal(acharTerminal([lista[0]], '')?.id, lista[0].id)
+})
+
+test('Mercado Pago: só pagamentos do balcão viram venda (cartão na Point, Pix/QR na loja, cobrança do sistema)', () => {
+  assert.ok(veioDoBalcao({ point_of_interaction: { type: 'POINT' } }))
+  assert.ok(veioDoBalcao({ point_of_interaction: { type: 'INSTORE' } }))
+  assert.ok(veioDoBalcao({ external_reference: 'sorveteria-123' }))
+  assert.ok(!veioDoBalcao({ point_of_interaction: { type: 'PIX_TRANSFER' } }))
+  assert.ok(!veioDoBalcao({}))
 })
