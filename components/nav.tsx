@@ -5,6 +5,7 @@ import { ArrowDownCircle, ArrowUpCircle, ChartColumn, History, LayoutDashboard, 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { logout } from '@/lib/actions'
+import { InstalarApp } from './instalar-app'
 import { Logo } from './logo'
 
 const ITEMS = [
@@ -54,6 +55,7 @@ export function Sidebar() {
           )
         })}
       </nav>
+      <InstalarApp variante="barra" />
       <form action={logout}>
         <button
           type="submit"
@@ -110,15 +112,18 @@ export function MobileHeader() {
       <Link href="/" className="rounded-xl">
         <Logo />
       </Link>
-      <form action={logout}>
-        <button
-          type="submit"
-          aria-label="Sair"
-          className="rounded-xl p-2.5 text-cacau-suave hover:bg-superficie hover:text-cacau"
-        >
-          <LogOut aria-hidden className="size-5" />
-        </button>
-      </form>
+      <div className="flex items-center gap-1">
+        <InstalarApp variante="icone" />
+        <form action={logout}>
+          <button
+            type="submit"
+            aria-label="Sair"
+            className="rounded-xl p-2.5 text-cacau-suave hover:bg-superficie hover:text-cacau"
+          >
+            <LogOut aria-hidden className="size-5" />
+          </button>
+        </form>
+      </div>
     </header>
   )
 }

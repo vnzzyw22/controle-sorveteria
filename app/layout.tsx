@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import { Bricolage_Grotesque, Inter } from 'next/font/google'
 import { Providers } from '@/components/providers'
+import { SCRIPT_CAPTURA_INSTALACAO } from '@/components/instalar-app'
 import './globals.css'
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'swap' })
@@ -10,6 +11,9 @@ export const metadata: Metadata = {
   title: { default: 'Caixa da Sorveteria', template: '%s · Caixa da Sorveteria' },
   description: 'Fluxo de caixa: vendas, taxas das maquininhas e saídas do dia.',
   robots: { index: false, follow: false },
+  applicationName: 'Caixa da Sorveteria',
+  appleWebApp: { capable: true, title: 'Caixa', statusBarStyle: 'default' },
+  icons: { apple: '/icons/apple-touch-icon.png' },
 }
 
 export const viewport: Viewport = {
@@ -19,6 +23,9 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="pt-BR" className={`${inter.variable} ${bricolage.variable}`}>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: SCRIPT_CAPTURA_INSTALACAO }} />
+      </head>
       <body>
         <Providers>{children}</Providers>
       </body>
