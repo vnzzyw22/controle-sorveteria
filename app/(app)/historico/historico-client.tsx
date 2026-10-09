@@ -12,6 +12,7 @@ import { deleteEntrada, deleteSaida, setParcelaPaga } from '@/lib/actions'
 import type { Entrada, Maquininha, Parcela, Saida, Totais } from '@/lib/data'
 import { addDays, addMonths, formatData, formatDataCurta, formatHora, inicioDoMes } from '@/lib/dates'
 import type { FiltroContas, FiltroSaidas, FiltroVendas } from '@/lib/filters'
+import { PRODUTOS, nomeProduto } from '@/lib/produtos'
 import { FORMAS_ENTRADA, FORMAS_SAIDA, FORMA_LABEL, formatBRL } from '@/lib/money'
 import { linkEditarSaida, linkEditarVenda } from '@/lib/voltar'
 
@@ -325,12 +326,32 @@ export function VendasView({
   const [aberta, setAberta] = useState<Entrada | null>(null)
   const fechar = useCallback(() => setAberta(null), [])
   const toast = useToast()
-  const filtrado = Boolean(filtro.forma || filtro.maquininha || filtro.q)
+  const filtrado = Boolean(filtro.forma || filtro.maquininha || filtro.produto || filtro.q)
 
   return (
     <div className="space-y-4">
       <div className="cartao space-y-3 p-4">
         <Periodo de={filtro.de} ate={filtro.ate} hoje={hoje} aplicar={aplicar} />
+        <div role="group" aria-label="Filtrar por produto" className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
+          {[{ id: '', nome: 'Todos os produtos' }, ...PRODUTOS].map((p) => {
+            const ativo = filtro.produto === p.id
+            return (
+              <button
+                key={p.id || 'todos'}
+                type="button"
+                aria-pressed={ativo}
+                onClick={() => aplicar({ produto: p.id || null })}
+                className={`shrink-0 whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-semibold transition-colors ${
+                  ativo
+                    ? 'bg-framboesa text-white'
+                    : 'border border-linha bg-superficie text-cacau-suave hover:border-borda hover:text-cacau'
+                }`}
+              >
+                {p.nome}
+              </button>
+            )
+          })}
+        </div>
         <div className="flex flex-col gap-2 sm:flex-row">
           <FiltroSelect id="f-forma" label="Forma de pagamento" value={filtro.forma} onChange={(v) => aplicar({ forma: v })}>
             <option value="">Todas as formas</option>
@@ -377,7 +398,7 @@ export function VendasView({
 
       <Resultados pending={pending}>
         {vendas.length === 0 ? (
-          <Vazio filtrado={filtrado} limpar={() => aplicar({ forma: null, maquininha: null, q: null })}>
+          <Vazio filtrado={filtrado} limpar={() => aplicar({ forma: null, maquininha: null, produto: null, q: null })}>
             {filtrado ? 'Nenhuma venda com esses filtros.' : 'Nenhuma venda neste período.'}
           </Vazio>
         ) : (
@@ -389,6 +410,7 @@ export function VendasView({
                   <tr>
                     <th scope="col" className="px-4 py-3 font-medium">Nº</th>
                     <th scope="col" className="px-4 py-3 font-medium">Data</th>
+                    <th scope="col" className="px-4 py-3 font-medium">Produto</th>
                     <th scope="col" className="px-4 py-3 font-medium">Forma</th>
                     <th scope="col" className="px-4 py-3 font-medium">Maquininha</th>
                     <th scope="col" className="px-4 py-3 font-medium">Observação</th>
@@ -419,6 +441,7 @@ export function VendasView({
                         </button>
                       </td>
                       <td className="tabular whitespace-nowrap px-4 py-3">{formatData(v.data)}</td>
+                      <td className="whitespace-nowrap px-4 py-3 font-medium">{nomeProduto(v.produto)}</td>
                       <td className="px-4 py-3">
                         <FormaBadge forma={v.forma} parcelas={v.parcelas} />
                       </td>
@@ -451,6 +474,7 @@ export function VendasView({
                   >
                     <span className="min-w-0">
                       <span className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold">{nomeProduto(v.produto)}</span>
                         <FormaBadge forma={v.forma} parcelas={v.parcelas} />
                         <span className="tabular text-xs text-cacau-suave">
                           {formatData(v.data)} · #{v.id}
@@ -486,6 +510,7 @@ export function VendasView({
               items={[
                 ['Data da venda', formatData(aberta.data)],
                 ['Lançada às', formatHora(new Date(aberta.criadoEm))],
+                ['Produto', nomeProduto(aberta.produto)],
                 ['Forma', <FormaBadge key="f" forma={aberta.forma} parcelas={aberta.parcelas} />],
                 ['Maquininha', aberta.maquininhaNome ?? (aberta.forma === 'pix' ? 'Direto na conta' : '—')],
                 ['Valor bruto', formatBRL(aberta.brutoCentavos)],

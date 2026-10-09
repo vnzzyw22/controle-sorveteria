@@ -3,6 +3,7 @@ import { listSaidas, listVendas } from '@/lib/data'
 import { formatData } from '@/lib/dates'
 import { parseFiltroSaidas, parseFiltroVendas } from '@/lib/filters'
 import { FORMA_LABEL } from '@/lib/money'
+import { nomeProduto } from '@/lib/produtos'
 
 export const dynamic = 'force-dynamic'
 
@@ -39,10 +40,11 @@ export async function GET(request: Request) {
     const { vendas } = await listVendas(filtro, { all: true })
     nome = `vendas_${filtro.de}_a_${filtro.ate}.csv`
     body = csv([
-      ['Nº', 'Data', 'Forma', 'Parcelas', 'Maquininha', 'Observação', 'Bruto', 'Taxa %', 'Taxa R$', 'Líquido', 'Recebimento'],
+      ['Nº', 'Data', 'Produto', 'Forma', 'Parcelas', 'Maquininha', 'Observação', 'Bruto', 'Taxa %', 'Taxa R$', 'Líquido', 'Recebimento'],
       ...vendas.map((v) => [
         v.id,
         formatData(v.data),
+        nomeProduto(v.produto),
         FORMA_LABEL[v.forma],
         v.parcelas,
         v.maquininhaNome,

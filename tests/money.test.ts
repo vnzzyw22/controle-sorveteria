@@ -71,3 +71,20 @@ test('datas: validação', () => {
   assert.ok(!isIsoDate('08/10/2026'))
   assert.ok(!isIsoDate(undefined))
 })
+
+import { produtoPeloValor, produtoPeloValorSql, nomeProduto } from '../lib/produtos.ts'
+
+test('produto pelo valor: preços fixos e self-service', () => {
+  assert.equal(produtoPeloValor(799), 'cascao_1')
+  assert.equal(produtoPeloValor(1199), 'cascao_2')
+  assert.equal(produtoPeloValor(400), 'agua')
+  assert.equal(produtoPeloValor(700), 'refrigerante')
+  assert.equal(produtoPeloValor(800), 'suco')
+  assert.equal(produtoPeloValor(1400), 'monster')
+  assert.equal(produtoPeloValor(1500), 'red_bull')
+  assert.equal(produtoPeloValor(1873), 'self_service')
+  assert.equal(produtoPeloValor(800 + 1), 'self_service')
+  assert.equal(nomeProduto('cascao_2'), 'Cascão 2 bolas')
+  assert.equal(nomeProduto(null), 'Self-service')
+  assert.match(produtoPeloValorSql('valor_bruto'), /WHEN 7\.99 THEN 'cascao_1'.*ELSE 'self_service' END/)
+})

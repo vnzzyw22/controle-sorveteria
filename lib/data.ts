@@ -11,6 +11,7 @@ import {
 } from './analise'
 import { chaveCategoria } from './categorias'
 import { query } from './db'
+import { isProdutoId, produtoPeloValor, type ProdutoId } from './produtos'
 import { addDays } from './dates'
 import type { FiltroContas, FiltroSaidas, FiltroVendas } from './filters'
 import { PAGE_SIZE } from './filters'
@@ -37,6 +38,7 @@ export interface Entrada {
   forma: FormaEntrada
   maquininhaId: number | null
   maquininhaNome: string | null
+  produto: ProdutoId
   parcelas: number
   brutoCentavos: number
   taxaPercentual: number
@@ -101,7 +103,7 @@ export async function getTaxas(): Promise<Taxa[]> {
 
 const ENTRADA_COLUMNS = /* sql */ `
   e.id, e.data, e.descricao, e.forma, e.maquininha_id, m.nome AS maquininha_nome, e.parcelas,
-  e.valor_bruto, e.taxa_percentual, e.valor_taxa, e.valor_liquido, e.data_recebimento, e.criado_em
+  e.valor_bruto, e.taxa_percentual, e.valor_taxa, e.valor_liquido, e.data_recebimento, e.criado_em, e.produto
 `
 
 interface EntradaRow {
@@ -118,6 +120,7 @@ interface EntradaRow {
   valor_liquido: string
   data_recebimento: string
   criado_em: Date
+  produto: string | null
 }
 
 function mapEntrada(r: EntradaRow): Entrada {
@@ -128,6 +131,7 @@ function mapEntrada(r: EntradaRow): Entrada {
     forma: r.forma,
     maquininhaId: r.maquininha_id,
     maquininhaNome: r.maquininha_nome,
+    produto: isProdutoId(r.produto) ? r.produto : produtoPeloValor(decimalToCents(r.valor_bruto)),
     parcelas: r.parcelas,
     brutoCentavos: decimalToCents(r.valor_bruto),
     taxaPercentual: Number(r.taxa_percentual),
@@ -150,6 +154,10 @@ function whereVendas(f: FiltroVendas): { sql: string; params: unknown[] } {
   } else if (f.maquininha) {
     params.push(f.maquininha)
     conds.push(`e.maquininha_id = $${params.length}`)
+  }
+  if (f.produto) {
+    params.push(f.produto)
+    conds.push(`e.produto = $${params.length}`)
   }
   if (f.q) {
     params.push(`%${f.q}%`)

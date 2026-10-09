@@ -26,6 +26,7 @@ import {
 } from './money'
 import { SESSION_COOKIE, createSessionToken, passwordMatches } from './session'
 import { PRAZO_PADRAO } from './taxas'
+import { isProdutoId, produtoPeloValor, type ProdutoId } from './produtos'
 
 export interface ActionResult {
   ok: boolean
@@ -96,6 +97,7 @@ interface DadosEntrada {
   descricao: string | null
   maquininhaId: number | null
   parcelas: number
+  produto: ProdutoId
 }
 
 const falhou = (x: object): x is ActionResult => 'ok' in x
@@ -124,7 +126,11 @@ function lerEntrada(formData: FormData): DadosEntrada | ActionResult {
   if (maquininhaId === null) parcelas = 1
   else if (!Number.isInteger(maquininhaId)) return fail('Maquininha inválida.')
 
-  return { valor, forma, data, descricao, maquininhaId, parcelas }
+  // Produto escolhido na tela; se não veio, classifica pelo valor (preço fixo ou self-service).
+  const produtoRaw = text(formData, 'produto')
+  const produto = isProdutoId(produtoRaw) ? produtoRaw : produtoPeloValor(valor)
+
+  return { valor, forma, data, descricao, maquininhaId, parcelas, produto }
 }
 
 /**
@@ -163,8 +169,8 @@ export async function createEntrada(_prev: ActionResult | null, formData: FormDa
   const { taxaCentavos, liquidoCentavos } = calcularTaxa(d.valor, t.percentual)
   const [row] = await query<{ id: number }>(
     `INSERT INTO entradas (data, descricao, forma, maquininha_id, parcelas, valor_bruto, taxa_percentual,
-                           valor_taxa, valor_liquido, data_recebimento)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+                           valor_taxa, valor_liquido, data_recebimento, produto)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
     [
       d.data,
       d.descricao,
@@ -176,6 +182,7 @@ export async function createEntrada(_prev: ActionResult | null, formData: FormDa
       centsToDecimal(taxaCentavos),
       centsToDecimal(liquidoCentavos),
       addDays(d.data, t.prazoDias),
+      d.produto,
     ],
   )
   refresh()
@@ -213,7 +220,8 @@ export async function updateEntrada(_prev: ActionResult | null, formData: FormDa
   const { taxaCentavos, liquidoCentavos } = calcularTaxa(d.valor, t.percentual)
   await query(
     `UPDATE entradas SET data = $2, descricao = $3, forma = $4, maquininha_id = $5, parcelas = $6,
-            valor_bruto = $7, taxa_percentual = $8, valor_taxa = $9, valor_liquido = $10, data_recebimento = $11
+            valor_bruto = $7, taxa_percentual = $8, valor_taxa = $9, valor_liquido = $10, data_recebimento = $11,
+            produto = $12
      WHERE id = $1`,
     [
       id,
@@ -227,6 +235,7 @@ export async function updateEntrada(_prev: ActionResult | null, formData: FormDa
       centsToDecimal(taxaCentavos),
       centsToDecimal(liquidoCentavos),
       addDays(d.data, t.prazoDias),
+      d.produto,
     ],
   )
   refresh()

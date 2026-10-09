@@ -13,6 +13,7 @@ import type { Entrada, Maquininha, Taxa, Totais } from '@/lib/data'
 import { addDays, formatData, formatDataCurta, formatHora } from '@/lib/dates'
 import { FORMA_LABEL, MAX_PARCELAS_CREDITO, calcularTaxa, formatBRL, type FormaEntrada } from '@/lib/money'
 import { linkEditarVenda } from '@/lib/voltar'
+import { PRODUTOS, nomeProduto, produtoPeloValor, type ProdutoId } from '@/lib/produtos'
 import { CobrancaMaquininha } from './cobranca-maquininha'
 import { BuscarVendasBotao } from '@/components/buscar-vendas-botao'
 
@@ -58,6 +59,28 @@ export function VendaForm({
   const [parcelas, setParcelas] = useState(original?.parcelas ?? 1)
   const [data, setData] = useState(original?.data ?? hoje)
   const [descricao, setDescricao] = useState(original?.descricao ?? '')
+  // Produto: segue o valor (preço fixo ou self-service) até alguém escolher outro na mão.
+  const [produto, setProduto] = useState<ProdutoId>(original?.produto ?? 'self_service')
+  const [produtoManual, setProdutoManual] = useState(
+    original ? original.produto !== produtoPeloValor(original.brutoCentavos) : false,
+  )
+
+  function mudarValor(centavos: number) {
+    setValor(centavos)
+    if (!produtoManual) setProduto(produtoPeloValor(centavos))
+  }
+
+  function escolherProduto(id: ProdutoId) {
+    const p = PRODUTOS.find((x) => x.id === id)
+    setProduto(id)
+    if (p?.precoCentavos != null) {
+      setValor(p.precoCentavos)
+      setProdutoManual(false)
+    } else {
+      setProdutoManual(true)
+      valorRef.current?.focus()
+    }
+  }
 
   // Lembra a última maquininha usada neste aparelho.
   useEffect(() => {
@@ -133,6 +156,8 @@ export function VendaForm({
     })
     setValor(0)
     setDescricao('')
+    setProduto('self_service')
+    setProdutoManual(false)
     valorRef.current?.focus()
   }, [state, toast, edicao, router])
 
@@ -146,7 +171,34 @@ export function VendaForm({
           <label htmlFor="valor" className="rotulo">
             Valor da venda
           </label>
-          <MoneyInput id="valor" name="valor" value={valor} onChange={setValor} large autoFocus={!edicao} inputRef={valorRef} />
+          <MoneyInput id="valor" name="valor" value={valor} onChange={mudarValor} large autoFocus={!edicao} inputRef={valorRef} />
+        </div>
+
+        <div>
+          <Segmented
+            name="produto"
+            legend="O que foi vendido?"
+            layoutId="produto-venda"
+            value={produto}
+            onChange={escolherProduto}
+            columns="grid-cols-2 sm:grid-cols-4"
+            options={PRODUTOS.map((p) => ({
+              value: p.id,
+              tone: 'text-framboesa',
+              label: (
+                <span className="flex flex-col py-1 leading-tight">
+                  <span>{p.nome}</span>
+                  <span className="tabular text-xs font-normal opacity-75">
+                    {p.precoCentavos === null ? 'valor da balança' : formatBRL(p.precoCentavos)}
+                  </span>
+                </span>
+              ),
+            }))}
+          />
+          <p className="mt-1.5 text-xs text-cacau-suave">
+            Escolhido sozinho pelo valor: {formatBRL(799)} é cascão de 1 bola, {formatBRL(1199)} é de 2 bolas, bebidas pelo
+            preço e o resto é self-service. Toque para trocar.
+          </p>
         </div>
 
         <Segmented
@@ -426,6 +478,7 @@ function Recentes({ recentes, totalHoje, hoje }: { recentes: Entrada[]; totalHoj
                 className="flex items-center justify-between gap-3 py-2.5"
               >
                 <span className="min-w-0">
+                  <span className="mr-2 font-medium">{nomeProduto(v.produto)}</span>
                   <FormaBadge forma={v.forma} parcelas={v.parcelas} />
                   <span className="ml-2 text-xs text-cacau-suave">
                     {formatHora(new Date(v.criadoEm))}

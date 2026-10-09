@@ -6,6 +6,7 @@ import { query } from './db'
 import { calcularTaxa, centsToDecimal, decimalToCents, type FormaEntrada } from './money'
 import { acharTerminal, dataBrasilia, vendaDoPagamento, type PagamentoMP } from './mp-mapa'
 import { addDays, hoje } from './dates'
+import { produtoPeloValor } from './produtos'
 
 // Integração híbrida com a maquininha Mercado Pago (Point):
 // - Do computador: o sistema envia a cobrança para a maquininha (Orders API) e lança a venda quando ela é paga.
@@ -138,8 +139,8 @@ export async function registrarPagamento(p: PagamentoMP, exigirMaquininha = true
 
   const [row] = await query<{ id: number }>(
     `INSERT INTO entradas (data, descricao, forma, maquininha_id, parcelas, valor_bruto, taxa_percentual,
-                           valor_taxa, valor_liquido, data_recebimento, origem, mp_payment_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'maquininha', $11)
+                           valor_taxa, valor_liquido, data_recebimento, origem, mp_payment_id, produto)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'maquininha', $11, $12)
      ON CONFLICT (mp_payment_id) WHERE mp_payment_id IS NOT NULL DO NOTHING RETURNING id`,
     [
       v.data,
@@ -153,6 +154,7 @@ export async function registrarPagamento(p: PagamentoMP, exigirMaquininha = true
       centsToDecimal(v.liquidoCentavos),
       v.dataRecebimento,
       v.mpPaymentId,
+      produtoPeloValor(v.brutoCentavos),
     ],
   )
   if (!row) return { texto: 'já estava lançada' }
@@ -269,8 +271,8 @@ async function lancarPelaCobranca(order: Awaited<ReturnType<Order['get']>>): Pro
   const data = hoje()
   const [row] = await query<{ id: number }>(
     `INSERT INTO entradas (data, descricao, forma, maquininha_id, parcelas, valor_bruto, taxa_percentual,
-                           valor_taxa, valor_liquido, data_recebimento, origem, mp_payment_id)
-     VALUES ($1, 'Maquininha Mercado Pago', $2, $3, $4, $5, $6, $7, $8, $9, 'maquininha', $10)
+                           valor_taxa, valor_liquido, data_recebimento, origem, mp_payment_id, produto)
+     VALUES ($1, 'Maquininha Mercado Pago', $2, $3, $4, $5, $6, $7, $8, $9, 'maquininha', $10, $11)
      ON CONFLICT (mp_payment_id) WHERE mp_payment_id IS NOT NULL DO NOTHING RETURNING id`,
     [
       data,
@@ -283,6 +285,7 @@ async function lancarPelaCobranca(order: Awaited<ReturnType<Order['get']>>): Pro
       centsToDecimal(liquidoCentavos),
       addDays(data, taxa?.prazo_dias ?? 0),
       pg.id,
+      produtoPeloValor(bruto),
     ],
   )
   if (row) revalidatePath('/', 'layout')

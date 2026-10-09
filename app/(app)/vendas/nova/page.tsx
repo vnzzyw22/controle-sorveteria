@@ -13,7 +13,7 @@ export default async function NovaVendaPage() {
   const [maquininhas, taxas, recentes, ultimaId] = await Promise.all([
     getMaquininhas(),
     getTaxas(),
-    listVendas({ de: today, ate: today, forma: '', maquininha: '', q: '', pagina: 1 }),
+    listVendas({ de: today, ate: today, forma: '', maquininha: '', produto: '', q: '', pagina: 1 }),
     ultimaEntradaId(),
   ])
   return (

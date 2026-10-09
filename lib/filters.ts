@@ -1,4 +1,5 @@
 import { addDays, hoje, inicioDoMes, isIsoDate } from './dates'
+import { isProdutoId, type ProdutoId } from './produtos'
 import { FORMAS_ENTRADA, FORMAS_SAIDA, type FormaEntrada, type FormaSaida } from './money'
 
 export const PAGE_SIZE = 30
@@ -34,6 +35,7 @@ export interface FiltroVendas {
   ate: string
   forma: FormaEntrada | ''
   maquininha: number | 'nenhuma' | ''
+  produto: ProdutoId | ''
   q: string
   pagina: number
 }
@@ -46,6 +48,7 @@ export function parseFiltroVendas(params: Params): FiltroVendas {
     ...periodo(params),
     forma: FORMAS_ENTRADA.includes(forma) ? forma : '',
     maquininha: maq === 'nenhuma' ? 'nenhuma' : Number.isInteger(maqId) && maqId > 0 ? maqId : '',
+    produto: isProdutoId(one(params, 'produto')) ? (one(params, 'produto') as ProdutoId) : '',
     q: busca(params),
     pagina: pagina(params),
   }

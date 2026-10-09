@@ -9,6 +9,7 @@ import { useToast } from '@/components/toast'
 import { deleteEntrada } from '@/lib/actions'
 import type { CaixaDia } from '@/lib/data'
 import { formatDataCurta, formatHora } from '@/lib/dates'
+import { nomeProduto } from '@/lib/produtos'
 import { FORMAS_ENTRADA, FORMA_LABEL, formatBRL, type FormaEntrada } from '@/lib/money'
 import { linkEditarSaida, linkEditarVenda } from '@/lib/voltar'
 
@@ -251,6 +252,7 @@ function ListaVendas({ entradas, voltar }: { entradas: CaixaDia['entradas']; vol
                 className="min-w-0 flex-1 rounded-lg text-left"
               >
                 <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="font-medium">{nomeProduto(v.produto)}</span>
                   <FormaBadge forma={v.forma} parcelas={v.parcelas} />
                   <span className="text-xs text-cacau-suave">
                     {formatHora(new Date(v.criadoEm))}

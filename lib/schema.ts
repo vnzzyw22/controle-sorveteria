@@ -1,6 +1,8 @@
 // Estrutura do banco. Todos os comandos são idempotentes: podem rodar várias vezes
 // sem apagar dados (o sistema roda isto automaticamente na primeira conexão).
 
+import { produtoPeloValorSql } from './produtos.ts'
+
 export const SCHEMA_SQL = /* sql */ `
 CREATE TABLE IF NOT EXISTS maquininhas (
   id        INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -73,6 +75,11 @@ CREATE TABLE IF NOT EXISTS metas (
 ALTER TABLE entradas ADD COLUMN IF NOT EXISTS origem TEXT NOT NULL DEFAULT 'manual';
 ALTER TABLE entradas ADD COLUMN IF NOT EXISTS mp_payment_id TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS entradas_mp_payment_idx ON entradas (mp_payment_id) WHERE mp_payment_id IS NOT NULL;
+
+-- Produto vendido (cascão, self-service, bebidas...). Vendas antigas são classificadas pelo valor.
+ALTER TABLE entradas ADD COLUMN IF NOT EXISTS produto TEXT;
+UPDATE entradas SET produto = ${produtoPeloValorSql('valor_bruto')} WHERE produto IS NULL;
+CREATE INDEX IF NOT EXISTS entradas_produto_idx ON entradas (produto);
 
 -- Cobranças enviadas do sistema para a maquininha (Orders API).
 CREATE TABLE IF NOT EXISTS mp_cobrancas (
