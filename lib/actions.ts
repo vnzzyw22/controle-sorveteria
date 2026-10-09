@@ -592,11 +592,14 @@ export async function buscarVendasDaMaquininha(): Promise<ActionResult> {
   try {
     const r = await sincronizarDia(hoje())
     refresh()
-    return done(
+    const partes = [
       r.lancadas
-        ? `${r.lancadas} ${r.lancadas === 1 ? 'venda lançada' : 'vendas lançadas'} da maquininha.`
-        : `Nenhuma venda nova da maquininha hoje. Veja os detalhes em "Últimos avisos".`,
-    )
+        ? `${r.lancadas} ${r.lancadas === 1 ? 'venda nova lançada' : 'vendas novas lançadas'} da maquininha.`
+        : 'Nenhuma venda nova da maquininha.',
+    ]
+    if (r.jaEstavam) partes.push(`${r.jaEstavam} já ${r.jaEstavam === 1 ? 'estava' : 'estavam'} no caixa.`)
+    if (r.ignoradas) partes.push(`${r.ignoradas} ${r.ignoradas === 1 ? 'pagamento ignorado' : 'pagamentos ignorados'} (o motivo fica em Ajustes).`)
+    return done(partes.join(' '))
   } catch (error) {
     return fail(error instanceof Error ? error.message : 'Não foi possível buscar as vendas.')
   }

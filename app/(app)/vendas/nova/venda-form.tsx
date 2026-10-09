@@ -14,6 +14,7 @@ import { addDays, formatData, formatDataCurta, formatHora } from '@/lib/dates'
 import { FORMA_LABEL, MAX_PARCELAS_CREDITO, calcularTaxa, formatBRL, type FormaEntrada } from '@/lib/money'
 import { linkEditarVenda } from '@/lib/voltar'
 import { CobrancaMaquininha } from './cobranca-maquininha'
+import { BuscarVendasBotao } from '@/components/buscar-vendas-botao'
 
 const ULTIMA_MAQ = 'sorveteria:ultima-maquininha'
 
@@ -317,6 +318,7 @@ export function VendaForm({
             }}
           />
         )}
+        {maquininhaMP && !edicao && <BuscarVendasBotao className="w-full" />}
         {edicao && (
           <Link href={edicao.voltar} className="block text-center text-sm font-semibold text-cacau-suave hover:text-cacau">
             Cancelar e voltar

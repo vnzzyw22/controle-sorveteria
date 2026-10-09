@@ -2,7 +2,7 @@ import { CheckCircle2, CircleDashed, TriangleAlert } from 'lucide-react'
 import { headers } from 'next/headers'
 import { formatHora, formatDataCurta, hoje } from '@/lib/dates'
 import { buscarTerminal, contaDoToken, mpConfig, ultimosEventos, type ContaMP, type Terminal } from '@/lib/mercadopago'
-import { BuscarVendasBotao } from './buscar-vendas-botao'
+import { ListaVerMais } from '@/components/lista-ver-mais'
 import { ModoMaquininhaBotao } from './modo-maquininha-botao'
 
 function Item({ ok, aviso, titulo, children }: { ok: boolean; aviso?: boolean; titulo: string; children: React.ReactNode }) {
@@ -43,7 +43,7 @@ export async function MercadoPagoPainel() {
     }
   }
   const contaDeTeste = conta?.tags?.some((t) => /test/i.test(t)) ?? false
-  const eventos = await ultimosEventos(8).catch(() => [])
+  const eventos = await ultimosEventos(20).catch(() => [])
   const hojeIso = hoje()
 
   return (
@@ -103,29 +103,24 @@ export async function MercadoPagoPainel() {
         </Item>
       </ul>
 
-      {cfg.token && (
-        <div className="mt-3 flex flex-col gap-2 border-t border-linha pt-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-cacau-suave">Faltou alguma venda feita na maquininha hoje? Busque no Mercado Pago.</p>
-          <BuscarVendasBotao />
-        </div>
-      )}
 
       {eventos.length > 0 && (
         <div className="mt-4 border-t border-linha pt-4">
           <h3 className="text-sm font-semibold">Últimos avisos do Mercado Pago</h3>
-          <ul className="mt-2 space-y-1.5 text-sm">
-            {eventos.map((e, i) => {
+          <ListaVerMais
+            visiveis={3}
+            itens={eventos.map((e, i) => {
               const dia = hoje(e.recebido_em)
               return (
-                <li key={i} className="rounded-lg bg-creme-fundo px-3 py-2">
+                <div key={i} className="rounded-lg bg-creme-fundo px-3 py-2">
                   <span className="tabular text-cacau-suave">
                     {dia === hojeIso ? 'hoje' : formatDataCurta(dia)} {formatHora(e.recebido_em)} · {e.tipo}
                   </span>
                   <span className="block break-words">{e.resultado}</span>
-                </li>
+                </div>
               )
             })}
-          </ul>
+          />
         </div>
       )}
     </section>
