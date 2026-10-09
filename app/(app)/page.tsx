@@ -1,6 +1,7 @@
 import { ArrowDownCircle, ArrowUpCircle, ChevronLeft, ChevronRight } from 'lucide-react'
 import Link from 'next/link'
-import { getCaixaDoDia, getContasAlerta, getPainelMeta } from '@/lib/data'
+import { getCaixaDoDia, getContasAlerta, getPainelMeta, ultimaEntradaId } from '@/lib/data'
+import { AutoAtualizar } from '@/components/auto-atualizar'
 import { addDays, formatData, formatDataExtenso, hoje, isIsoDate } from '@/lib/dates'
 import { CaixaDoDia } from './caixa-do-dia'
 import { ContasParaPagar } from './contas-para-pagar'
@@ -12,14 +13,16 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
   const data = isIsoDate(params.data) && params.data <= today ? params.data : today
   const ehHoje = data === today
   // O aviso de contas olha sempre para o dia de hoje de verdade, mesmo ao consultar um dia antigo.
-  const [caixa, contas, painel] = await Promise.all([
+  const [caixa, contas, painel, ultimaId] = await Promise.all([
     getCaixaDoDia(data),
     getContasAlerta(today),
     ehHoje ? getPainelMeta(today) : null,
+    ultimaEntradaId(),
   ])
 
   return (
     <>
+      {ehHoje && <AutoAtualizar ultimaId={ultimaId} />}
       <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-sm font-medium text-cacau-suave">{formatDataExtenso(data)}</p>

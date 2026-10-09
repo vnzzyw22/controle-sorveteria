@@ -679,3 +679,9 @@ export async function getCategoriasUsadas(): Promise<string[]> {
   const vistas = new Set<string>()
   return rows.map((r) => r.categoria).filter((c) => !vistas.has(chaveCategoria(c)) && vistas.add(chaveCategoria(c)))
 }
+
+/** Número da venda mais recente (usado pelas telas que se atualizam sozinhas). */
+export async function ultimaEntradaId(): Promise<number> {
+  const [r] = await query<{ ultima: number | null }>('SELECT max(id) AS ultima FROM entradas')
+  return r?.ultima ?? 0
+}

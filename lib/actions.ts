@@ -8,7 +8,7 @@ import { requireAuth } from './auth'
 import { nomeDoMes } from './analise'
 import { CATEGORIAS_PADRAO, categoriaCanonica } from './categorias'
 import { getCategoriasUsadas } from './data'
-import { atualizarCobranca, cancelarCobranca, criarCobranca, mpPronto, mudarModoMaquininha, sincronizarDia, type ModoMaquininha } from './mercadopago'
+import { atualizarCobranca, cancelarCobranca, criarCobranca, mpPronto, mudarModoMaquininha, sincronizarDia, sincronizarSeNecessario, type ModoMaquininha } from './mercadopago'
 import { query, transaction } from './db'
 import { addDays, addMonths, hoje, isIsoDate } from './dates'
 import {
@@ -618,4 +618,21 @@ export async function trocarModoMaquininha(modo: ModoMaquininha): Promise<Action
   } catch (error) {
     return fail(error instanceof Error ? error.message : 'Não foi possível trocar o modo da maquininha.')
   }
+}
+
+/**
+ * Chamada a cada 30 s pelas telas Caixa e Venda: puxa as vendas novas da maquininha (se o Mercado Pago estiver
+ * configurado) e devolve o número da última venda, para a tela saber se precisa se atualizar.
+ */
+export async function verificarVendasNovas(): Promise<{ ultimaId: number }> {
+  await requireAuth()
+  if (mpPronto()) {
+    try {
+      await sincronizarSeNecessario(hoje())
+    } catch (error) {
+      console.error('Busca automática do Mercado Pago falhou:', error instanceof Error ? error.message : error)
+    }
+  }
+  const [r] = await query<{ ultima: number | null }>('SELECT max(id) AS ultima FROM entradas')
+  return { ultimaId: r?.ultima ?? 0 }
 }

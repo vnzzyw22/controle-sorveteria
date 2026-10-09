@@ -95,6 +95,12 @@ CREATE TABLE IF NOT EXISTS mp_eventos (
 );
 CREATE INDEX IF NOT EXISTS mp_eventos_recebido_idx ON mp_eventos (recebido_em DESC);
 
+-- Controle da busca automática de vendas (no máximo uma a cada 20 segundos).
+CREATE TABLE IF NOT EXISTS mp_estado (
+  chave TEXT PRIMARY KEY,
+  valor TIMESTAMPTZ NOT NULL
+);
+
 INSERT INTO maquininhas (nome) VALUES ('Mercado Pago'), ('Stone'), ('PagSeguro')
 ON CONFLICT (nome) DO NOTHING;
 `

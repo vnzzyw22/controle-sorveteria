@@ -4,7 +4,7 @@ import { MercadoPagoConfig, Order, Payment, Point } from 'mercadopago'
 import { revalidatePath } from 'next/cache'
 import { query } from './db'
 import { calcularTaxa, centsToDecimal, decimalToCents, type FormaEntrada } from './money'
-import { acharTerminal, vendaDoPagamento, type PagamentoMP } from './mp-mapa'
+import { acharTerminal, dataBrasilia, vendaDoPagamento, type PagamentoMP } from './mp-mapa'
 import { addDays, hoje } from './dates'
 
 // Integração híbrida com a maquininha Mercado Pago (Point):
@@ -313,46 +313,90 @@ function resumoPagamento(p: { date_created?: string; transaction_amount?: number
   return `${data} ${valor} (${p.payment_type_id ?? '?'}, ${p.status ?? '?'}${origem ? `, origem ${origem}` : ''})`
 }
 
+/**
+ * Pagamentos do dia na conta. A busca do Mercado Pago às vezes demora a indexar e devolve resultados
+ * incompletos; por isso junta duas consultas (por data e "os mais recentes") e filtra o dia aqui.
+ */
+async function pagamentosDoDia(dia: string): Promise<PagamentoMP[]> {
+  const cliente = new Payment(sdk())
+  const [porData, recentes] = await Promise.all([
+    cliente.search({
+      options: {
+        range: 'date_created',
+        begin_date: `${addDays(dia, -1)}T00:00:00.000-03:00`,
+        end_date: `${dia}T23:59:59.999-03:00`,
+        sort: 'date_created',
+        criteria: 'desc',
+        limit: 100,
+      },
+    }),
+    cliente.search({ options: { sort: 'date_created', criteria: 'desc', limit: 50 } }),
+  ])
+  const porId = new Map<string, PagamentoMP>()
+  for (const p of [...(porData.results ?? []), ...(recentes.results ?? [])] as PagamentoMP[]) {
+    if (p.id === undefined || p.id === null) continue
+    const doDia = dataBrasilia(p.date_created) === dia || dataBrasilia(p.date_approved) === dia
+    if (doDia) porId.set(String(p.id), p)
+  }
+  return [...porId.values()]
+}
+
 /** Busca os pagamentos do dia na conta e lança os que vieram da maquininha e ainda não estão no sistema. */
 export async function sincronizarDia(
   dia: string,
+  opcoes: { registrar?: boolean } = {},
 ): Promise<{ lancadas: number; jaEstavam: number; ignoradas: number; detalhe: string }> {
-  const busca = await new Payment(sdk()).search({
-    options: {
-      range: 'date_created',
-      begin_date: `${dia}T00:00:00.000-03:00`,
-      end_date: `${dia}T23:59:59.999-03:00`,
-      sort: 'date_created',
-      criteria: 'asc',
-      limit: 100,
-    },
-  })
+  const registrar = opcoes.registrar ?? true
+  const pagamentos = await pagamentosDoDia(dia)
+  const ids = pagamentos.map((p) => String(p.id))
+  const existentes = new Set(
+    (await query<{ mp_payment_id: string }>('SELECT mp_payment_id FROM entradas WHERE mp_payment_id = ANY($1::text[])', [ids])).map(
+      (r) => r.mp_payment_id,
+    ),
+  )
+
   const resultado = { lancadas: 0, jaEstavam: 0, ignoradas: 0 }
   const motivos: string[] = []
-  for (const resumo of busca.results ?? []) {
-    if (!resumo.id) continue
-    const p = (await new Payment(sdk()).get({ id: resumo.id })) as PagamentoMP
+  for (const resumo of pagamentos) {
+    const id = String(resumo.id)
+    const estornado = ['refunded', 'cancelled', 'charged_back'].includes(resumo.status ?? '')
+    if (existentes.has(id) && !estornado) {
+      resultado.jaEstavam++
+      continue
+    }
+    // A busca já traz o pagamento completo; só consulta de novo se faltar a origem.
+    const p = resumo.point_of_interaction ? resumo : ((await new Payment(sdk()).get({ id })) as PagamentoMP)
     const r = await registrarPagamento(p)
     if (r.entradaId) resultado.lancadas++
     else if (r.texto === 'já estava lançada') resultado.jaEstavam++
     else {
       resultado.ignoradas++
-      motivos.push(`${resumoPagamento(p as never, p.point_of_interaction?.type)}: ${r.texto}`)
+      motivos.push(`${resumoPagamento(p, p.point_of_interaction?.type)}: ${r.texto}`)
     }
   }
 
   let detalhe = `${resultado.lancadas} lançadas, ${resultado.jaEstavam} já estavam, ${resultado.ignoradas} ignoradas`
   if (motivos.length) detalhe += `. Ignoradas: ${motivos.slice(0, 5).join(' | ')}`
-  if (!busca.results?.length) {
-    // Nenhum pagamento hoje: mostra os últimos da conta, para saber se o token enxerga as vendas da maquininha.
-    const ultimos = await new Payment(sdk()).search({ options: { sort: 'date_created', criteria: 'desc', limit: 3 } })
-    const lista = (ultimos.results ?? []).map((p) => resumoPagamento(p as never))
-    detalhe += lista.length
-      ? `. Nenhum pagamento hoje nesta conta. Últimos pagamentos da conta: ${lista.join(' | ')}`
-      : '. Esta conta não tem NENHUM pagamento registrado no Mercado Pago.'
+  if (!pagamentos.length) detalhe += '. O Mercado Pago ainda não mostrou nenhum pagamento de hoje nesta conta.'
+  if (registrar || resultado.lancadas || resultado.ignoradas) {
+    await registrarEvento(registrar ? 'busca manual' : 'busca automática', dia, detalhe)
   }
-  await registrarEvento('busca manual', dia, detalhe)
   return { ...resultado, detalhe }
+}
+
+/**
+ * Busca automática chamada pelas telas abertas (Caixa e Venda). Roda no máximo a cada 20 segundos,
+ * mesmo com vários aparelhos abertos, e só registra aviso quando algo novo aconteceu.
+ */
+export async function sincronizarSeNecessario(dia: string): Promise<number> {
+  const [vez] = await query<{ chave: string }>(
+    `INSERT INTO mp_estado (chave, valor) VALUES ('busca', now())
+     ON CONFLICT (chave) DO UPDATE SET valor = now() WHERE mp_estado.valor < now() - interval '20 seconds'
+     RETURNING chave`,
+  )
+  if (!vez) return 0
+  const r = await sincronizarDia(dia, { registrar: false })
+  return r.lancadas
 }
 
 // ---------- Registro dos avisos ----------
