@@ -112,6 +112,17 @@ CREATE TABLE IF NOT EXISTS saldo_inicial (
   atualizado_em TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Entradas de valor que não são vendas (renda extra, aporte dos sócios...). Somam no saldo da empresa,
+-- mas não entram nas vendas, no resumo nem na meta.
+CREATE TABLE IF NOT EXISTS outras_entradas (
+  id        INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  data      DATE NOT NULL,
+  descricao TEXT NOT NULL,
+  valor     NUMERIC(12,2) NOT NULL CHECK (valor > 0),
+  criado_em TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS outras_entradas_data_idx ON outras_entradas (data DESC, id DESC);
+
 -- Controle da busca automática de vendas (no máximo uma a cada 20 segundos).
 CREATE TABLE IF NOT EXISTS mp_estado (
   chave TEXT PRIMARY KEY,

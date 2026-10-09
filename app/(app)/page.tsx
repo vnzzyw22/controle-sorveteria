@@ -1,4 +1,4 @@
-import { ArrowDownCircle, ArrowUpCircle, ChevronLeft, ChevronRight } from 'lucide-react'
+import { ArrowDownCircle, ArrowUpCircle, PlusCircle, ChevronLeft, ChevronRight } from 'lucide-react'
 import Link from 'next/link'
 import { getCaixaDoDia, getContasAlerta, getPainelMeta, getSaldoEmpresa, ultimaEntradaId } from '@/lib/data'
 import { SaldoEmpresaCartao } from './saldo-empresa'
@@ -93,6 +93,13 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
         >
           <ArrowUpCircle aria-hidden className="size-5" />
           Lançar saída
+        </Link>
+        <Link
+          href="/entradas/nova"
+          className="col-span-2 flex items-center justify-center gap-2 rounded-xl border border-linha bg-superficie px-3 py-3 font-semibold sm:col-span-1 sm:px-5 text-cacau transition-colors hover:border-borda"
+        >
+          <PlusCircle aria-hidden className="size-5" />
+          Entrada de valor
         </Link>
       </div>
 

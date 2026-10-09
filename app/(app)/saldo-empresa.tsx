@@ -4,7 +4,7 @@ import type { SaldoEmpresa } from '@/lib/data'
 import { formatDataCurta } from '@/lib/dates'
 import { formatBRL } from '@/lib/money'
 
-/** Cartão do Caixa: saldo informado em Ajustes + vendas que já caíram − pagamentos feitos depois. */
+/** Cartão do Caixa: saldo informado em Ajustes + vendas que já caíram + entradas de valor − pagamentos feitos depois. */
 export function SaldoEmpresaCartao({ saldo }: { saldo: SaldoEmpresa | null }) {
   if (!saldo) {
     return (
@@ -48,6 +48,10 @@ export function SaldoEmpresaCartao({ saldo }: { saldo: SaldoEmpresa | null }) {
           <dd className="tabular text-entrada">{formatBRL(saldo.entradasCentavos)}</dd>
         </div>
         <div className="flex justify-between gap-3">
+          <dt className="text-cacau-suave">+ entradas de valor</dt>
+          <dd className="tabular text-entrada">{formatBRL(saldo.outrasCentavos)}</dd>
+        </div>
+        <div className="flex justify-between gap-3">
           <dt className="text-cacau-suave">− pagamentos feitos</dt>
           <dd className="tabular text-saida">{formatBRL(saldo.saidasCentavos)}</dd>
         </div>
@@ -56,6 +60,12 @@ export function SaldoEmpresaCartao({ saldo }: { saldo: SaldoEmpresa | null }) {
           <dd className="tabular">{formatBRL(saldo.aReceberCentavos)}</dd>
         </div>
       </dl>
+      <Link
+        href="/entradas/nova"
+        className="w-full rounded-xl border border-linha px-4 py-2 text-center text-sm font-semibold text-framboesa hover:border-borda hover:bg-creme-fundo sm:w-auto"
+      >
+        + Entrada de valor
+      </Link>
     </section>
   )
 }

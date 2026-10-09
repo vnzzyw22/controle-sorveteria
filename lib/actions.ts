@@ -666,3 +666,29 @@ export async function salvarSaldoInicial(_prev: ActionResult | null, formData: F
   refresh()
   return done('Saldo da empresa salvo. Ele aparece no Caixa e não conta como venda.')
 }
+
+// ---------- Entradas de valor (renda extra, aporte...) ----------
+
+export async function createOutraEntrada(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
+  await requireAuth()
+  const valor = cents(formData, 'valor')
+  if (!valor) return fail('Informe o valor que entrou.')
+  const descricao = text(formData, 'descricao', 120)
+  if (!descricao) return fail('Diga de onde veio o dinheiro (ex.: "Renda extra").')
+  const data = text(formData, 'data')
+  if (!isIsoDate(data) || data > hoje()) return fail('Escolha uma data até hoje.')
+  const [row] = await query<{ id: number }>(
+    'INSERT INTO outras_entradas (data, descricao, valor) VALUES ($1, $2, $3) RETURNING id',
+    [data, descricao, centsToDecimal(valor)],
+  )
+  refresh()
+  return done('Entrada de valor lançada. Ela soma no saldo da empresa e não conta como venda.', row.id)
+}
+
+export async function deleteOutraEntrada(id: number): Promise<ActionResult> {
+  await requireAuth()
+  if (!Number.isInteger(id)) return fail('Entrada inválida.')
+  const rows = await query<{ id: number }>('DELETE FROM outras_entradas WHERE id = $1 RETURNING id', [id])
+  refresh()
+  return rows.length ? done('Entrada de valor excluída.') : fail('Essa entrada já não existe.')
+}

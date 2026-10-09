@@ -702,6 +702,8 @@ export interface SaldoEmpresa {
   data: string
   /** Vendas lançadas depois do saldo cujo dinheiro já caiu (líquido, sem as taxas). */
   entradasCentavos: number
+  /** Entradas de valor (renda extra, aporte...) lançadas depois do saldo. */
+  outrasCentavos: number
   /** Pagamentos registrados depois do saldo. */
   saidasCentavos: number
   /** Vendas lançadas depois do saldo cujo dinheiro ainda vai cair (cartão a receber). */
@@ -715,7 +717,7 @@ export async function getSaldoEmpresa(hoje: string): Promise<SaldoEmpresa | null
   )
   if (!base) return null
   // Entra na conta o que aconteceu depois do saldo: dias seguintes, ou o mesmo dia mas lançado depois de salvar.
-  const [mov] = await query<{ recebido: string | null; a_receber: string | null; pago: string | null }>(
+  const [mov] = await query<{ recebido: string | null; a_receber: string | null; pago: string | null; outras: string | null }>(
     `WITH vendas AS (
        SELECT valor_liquido, data_recebimento FROM entradas
        WHERE data <= $2 AND (data > $1 OR (data = $1 AND criado_em > $3))
@@ -725,18 +727,39 @@ export async function getSaldoEmpresa(hoje: string): Promise<SaldoEmpresa | null
        (SELECT SUM(valor_liquido) FROM vendas WHERE data_recebimento > $2) AS a_receber,
        (SELECT SUM(p.valor) FROM saidas_parcelas p JOIN saidas s ON s.id = p.saida_id
         WHERE p.pago_em <= $2
-          AND (p.pago_em > $1 OR (p.pago_em = $1 AND COALESCE(p.pago_registrado_em, s.criado_em) > $3))) AS pago`,
+          AND (p.pago_em > $1 OR (p.pago_em = $1 AND COALESCE(p.pago_registrado_em, s.criado_em) > $3))) AS pago,
+       (SELECT SUM(valor) FROM outras_entradas
+        WHERE data <= $2 AND (data > $1 OR (data = $1 AND criado_em > $3))) AS outras`,
     [base.data, hoje, base.salvo_em],
   )
   const inicialCentavos = decimalToCents(base.valor)
   const entradasCentavos = decimalToCents(mov.recebido)
   const saidasCentavos = decimalToCents(mov.pago)
+  const outrasCentavos = decimalToCents(mov.outras)
   return {
     inicialCentavos,
     data: base.data,
     entradasCentavos,
+    outrasCentavos,
     saidasCentavos,
     aReceberCentavos: decimalToCents(mov.a_receber),
-    atualCentavos: inicialCentavos + entradasCentavos - saidasCentavos,
+    atualCentavos: inicialCentavos + entradasCentavos + outrasCentavos - saidasCentavos,
   }
+}
+
+// ---------- Entradas de valor (não são vendas) ----------
+
+export interface OutraEntrada {
+  id: number
+  data: string
+  descricao: string
+  valorCentavos: number
+}
+
+export async function listOutrasEntradas(limite = 30): Promise<OutraEntrada[]> {
+  const rows = await query<{ id: number; data: string; descricao: string; valor: string }>(
+    'SELECT id, data, descricao, valor FROM outras_entradas ORDER BY data DESC, id DESC LIMIT $1',
+    [limite],
+  )
+  return rows.map((r) => ({ id: r.id, data: r.data, descricao: r.descricao, valorCentavos: decimalToCents(r.valor) }))
 }
