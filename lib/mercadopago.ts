@@ -1,6 +1,6 @@
 import 'server-only'
 import { randomUUID } from 'node:crypto'
-import { MercadoPagoConfig, Order, Payment } from 'mercadopago'
+import { MercadoPagoConfig, Order, Payment, Point } from 'mercadopago'
 import { revalidatePath } from 'next/cache'
 import { query } from './db'
 import { calcularTaxa, centsToDecimal, decimalToCents, type FormaEntrada } from './money'
@@ -81,6 +81,33 @@ export async function buscarTerminal(): Promise<{ terminal: Terminal | null; tod
     todos,
     erro: achado ? undefined : `Nenhuma maquininha da conta corresponde a "${terminal || '(não informado)'}".`,
   }
+}
+
+export type ModoMaquininha = 'PDV' | 'STANDALONE'
+
+/**
+ * Troca o modo da maquininha: PDV (recebe cobranças do sistema) ou STANDALONE (uso normal, digitando o valor nela).
+ * Usa a API nova de terminais; se a conta ainda estiver na API antiga do Point, tenta por ela.
+ * A maquininha precisa ser reiniciada para o novo modo valer.
+ */
+export async function mudarModoMaquininha(modo: ModoMaquininha): Promise<void> {
+  const { token } = mpConfig()
+  const { terminal, erro } = await buscarTerminal()
+  if (!terminal) throw new Error(erro ?? 'Maquininha não encontrada na conta do Mercado Pago.')
+
+  const r = await fetch(`${API}/terminals/v1/setup`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ terminals: [{ id: terminal.id, operating_mode: modo }] }),
+    cache: 'no-store',
+  })
+  if (r.ok) return
+  if (r.status === 404 || r.status === 405) {
+    await new Point(sdk()).changeDeviceOperatingMode({ device_id: terminal.id, request: { operating_mode: modo } })
+    return
+  }
+  const corpo = await r.text().catch(() => '')
+  throw new Error(`O Mercado Pago não aceitou a troca de modo (${r.status}). ${corpo.slice(0, 200)}`)
 }
 
 // ---------- Registrar pagamentos como vendas ----------

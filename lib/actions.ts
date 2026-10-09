@@ -8,7 +8,7 @@ import { requireAuth } from './auth'
 import { nomeDoMes } from './analise'
 import { CATEGORIAS_PADRAO, categoriaCanonica } from './categorias'
 import { getCategoriasUsadas } from './data'
-import { atualizarCobranca, cancelarCobranca, criarCobranca, mpPronto, sincronizarDia } from './mercadopago'
+import { atualizarCobranca, cancelarCobranca, criarCobranca, mpPronto, mudarModoMaquininha, sincronizarDia, type ModoMaquininha } from './mercadopago'
 import { query, transaction } from './db'
 import { addDays, addMonths, hoje, isIsoDate } from './dates'
 import {
@@ -599,5 +599,23 @@ export async function buscarVendasDaMaquininha(): Promise<ActionResult> {
     )
   } catch (error) {
     return fail(error instanceof Error ? error.message : 'Não foi possível buscar as vendas.')
+  }
+}
+
+/** Botão de Ajustes: liga ou desliga o modo PDV (integrado) da maquininha. */
+export async function trocarModoMaquininha(modo: ModoMaquininha): Promise<ActionResult> {
+  await requireAuth()
+  if (modo !== 'PDV' && modo !== 'STANDALONE') return fail('Modo inválido.')
+  if (!mpPronto()) return fail('O Mercado Pago ainda não foi configurado (falta o token).')
+  try {
+    await mudarModoMaquininha(modo)
+    refresh()
+    return done(
+      modo === 'PDV'
+        ? 'Modo PDV ativado. Reinicie a maquininha (desligue e ligue) para começar a receber cobranças do sistema.'
+        : 'Modo normal ativado. Reinicie a maquininha (desligue e ligue) para voltar a digitar o valor nela.',
+    )
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : 'Não foi possível trocar o modo da maquininha.')
   }
 }

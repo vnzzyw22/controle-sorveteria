@@ -3,6 +3,7 @@ import { headers } from 'next/headers'
 import { formatHora, formatDataCurta, hoje } from '@/lib/dates'
 import { buscarTerminal, contaDoToken, mpConfig, ultimosEventos, type ContaMP, type Terminal } from '@/lib/mercadopago'
 import { BuscarVendasBotao } from './buscar-vendas-botao'
+import { ModoMaquininhaBotao } from './modo-maquininha-botao'
 
 function Item({ ok, aviso, titulo, children }: { ok: boolean; aviso?: boolean; titulo: string; children: React.ReactNode }) {
   const Icone = ok ? CheckCircle2 : aviso ? TriangleAlert : CircleDashed
@@ -83,6 +84,7 @@ export async function MercadoPagoPainel() {
               {terminal.operating_mode === 'PDV'
                 ? 'Modo PDV (integrado): pronta para receber cobranças do sistema.'
                 : `Modo ${terminal.operating_mode ?? 'desconhecido'}: para cobrar pelo sistema, ela precisa estar no modo PDV.`}
+              <ModoMaquininhaBotao pdv={terminal.operating_mode === 'PDV'} />
             </>
           ) : (
             <>
