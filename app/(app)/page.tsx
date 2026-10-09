@@ -1,6 +1,10 @@
 import { ArrowDownCircle, ArrowUpCircle, PlusCircle, ChevronLeft, ChevronRight } from 'lucide-react'
 import Link from 'next/link'
-import { getCaixaDoDia, getContasAlerta, getPainelMeta, getSaldoEmpresa } from '@/lib/data'
+import { getCaixaDoDia, getContasAlerta, getEstoque, getGaveta, getPainelMeta, getSaldoEmpresa } from '@/lib/data'
+import { montarResumoDia } from '@/lib/resumo-dia'
+import { ResumoWhatsApp } from '@/components/resumo-whatsapp'
+import { EstoqueAviso } from './estoque-aviso'
+import { GavetaCartao } from './gaveta'
 import { SaldoEmpresaCartao } from './saldo-empresa'
 import { addDays, formatData, formatDataExtenso, hoje, isIsoDate } from '@/lib/dates'
 import { CaixaDoDia } from './caixa-do-dia'
@@ -13,12 +17,32 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
   const data = isIsoDate(params.data) && params.data <= today ? params.data : today
   const ehHoje = data === today
   // O aviso de contas olha sempre para o dia de hoje de verdade, mesmo ao consultar um dia antigo.
-  const [caixa, contas, painel, saldo] = await Promise.all([
+  const [caixa, contas, painel, saldo, gaveta, estoque] = await Promise.all([
     getCaixaDoDia(data),
     getContasAlerta(today),
     ehHoje ? getPainelMeta(today) : null,
     ehHoje ? getSaldoEmpresa(today) : null,
+    getGaveta(data),
+    getEstoque(),
   ])
+  // Enquanto ninguém registrou o estoque, todas as bebidas estão em zero: não é "acabando", é "sem controle".
+  const controlaEstoque = estoque.some((i) => i.quantidade !== 0)
+  const resumo = montarResumoDia({
+    data,
+    quantidadeVendas: caixa.totais.quantidadeVendas,
+    brutoCentavos: caixa.totais.brutoCentavos,
+    taxaCentavos: caixa.totais.taxaCentavos,
+    liquidoCentavos: caixa.totais.liquidoCentavos,
+    saidasCentavos: caixa.totais.saidasCentavos,
+    saldoCentavos: caixa.totais.saldoCentavos,
+    formas: caixa.formas,
+    produtos: caixa.entradas.map((e) => e.produto),
+    gaveta,
+    saldoEmpresaCentavos: saldo?.atualCentavos ?? null,
+    estoqueBaixo: ehHoje && controlaEstoque
+      ? estoque.filter((i) => i.situacao !== 'ok').map((i) => ({ nome: i.nome, quantidade: Math.max(i.quantidade, 0) }))
+      : [],
+  })
 
   return (
     <>
@@ -29,7 +53,8 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
             {ehHoje ? 'Caixa de hoje' : `Caixa de ${formatData(data)}`}
           </h1>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <ResumoWhatsApp texto={resumo} />
           <nav aria-label="Escolher dia" className="flex items-center rounded-xl border border-linha bg-superficie">
             <Link
               href={`/?data=${addDays(data, -1)}`}
@@ -100,7 +125,11 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
         </Link>
       </div>
 
+      <GavetaCartao gaveta={gaveta} data={data} ehHoje={ehHoje} />
+
       {ehHoje && <SaldoEmpresaCartao saldo={saldo} />}
+
+      {ehHoje && <EstoqueAviso itens={estoque} />}
 
       <ContasParaPagar contas={contas} />
 

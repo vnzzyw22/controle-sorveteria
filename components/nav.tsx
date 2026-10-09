@@ -1,7 +1,7 @@
 'use client'
 
 import { motion } from 'framer-motion'
-import { ArrowDownCircle, ArrowUpCircle, ChartColumn, History, LayoutDashboard, LogOut, Settings } from 'lucide-react'
+import { ArrowDownCircle, ArrowUpCircle, ChartColumn, CupSoda, History, LayoutDashboard, LogOut, Settings } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { logout } from '@/lib/actions'
@@ -14,6 +14,8 @@ const ITEMS = [
   { href: '/saidas/nova', label: 'Lançar saída', short: 'Saída', icon: ArrowUpCircle },
   { href: '/resumo', label: 'Resumo', short: 'Resumo', icon: ChartColumn },
   { href: '/historico', label: 'Histórico', short: 'Histórico', icon: History },
+  // No celular o Estoque fica no aviso do Caixa (a barra de baixo já tem 6 botões).
+  { href: '/estoque', label: 'Estoque de bebidas', short: 'Estoque', icon: CupSoda, soComputador: true },
   { href: '/config', label: 'Configurações', short: 'Ajustes', icon: Settings },
 ]
 
@@ -77,7 +79,7 @@ export function BottomNav() {
       className="fixed inset-x-0 bottom-0 z-40 border-t border-linha bg-superficie/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden"
     >
       <ul className="mx-auto grid max-w-lg grid-cols-6">
-        {ITEMS.map(({ href, short, icon: Icon }) => {
+        {ITEMS.filter((i) => !('soComputador' in i)).map(({ href, short, icon: Icon }) => {
           const active = isActive(pathname, href)
           return (
             <li key={href}>

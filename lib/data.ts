@@ -11,7 +11,7 @@ import {
 } from './analise'
 import { chaveCategoria } from './categorias'
 import { query } from './db'
-import { isProdutoId, produtoPeloValor, type ProdutoId } from './produtos'
+import { PRODUTOS, isProdutoId, nomeProduto, produtoPeloValor, type ProdutoId } from './produtos'
 import { addDays } from './dates'
 import type { FiltroContas, FiltroSaidas, FiltroVendas } from './filters'
 import { PAGE_SIZE } from './filters'
@@ -762,4 +762,102 @@ export async function listOutrasEntradas(limite = 30): Promise<OutraEntrada[]> {
     [limite],
   )
   return rows.map((r) => ({ id: r.id, data: r.data, descricao: r.descricao, valorCentavos: decimalToCents(r.valor) }))
+}
+
+// ---------- Gaveta (fechamento de caixa) ----------
+
+export interface Gaveta {
+  data: string
+  aberta: boolean
+  aberturaCentavos: number
+  /** Vendas em dinheiro do dia (valor cheio, sem taxa). */
+  vendasDinheiroCentavos: number
+  /** Pagamentos do dia feitos em dinheiro. */
+  saidasDinheiroCentavos: number
+  /** Quanto deveria ter na gaveta: troco + vendas em dinheiro − pagamentos em dinheiro. */
+  esperadoCentavos: number
+  contadoCentavos: number | null
+  /** contado − esperado: positivo sobrou, negativo faltou. */
+  diferencaCentavos: number | null
+}
+
+export async function getGaveta(data: string): Promise<Gaveta | null> {
+  const [g] = await query<{ abertura: string; contado: string | null; vendas: string | null; saidas: string | null }>(
+    `SELECT g.abertura, g.contado,
+       (SELECT SUM(valor_bruto) FROM entradas WHERE data = $1 AND forma = 'dinheiro') AS vendas,
+       (SELECT SUM(p.valor) FROM saidas_parcelas p JOIN saidas s ON s.id = p.saida_id
+        WHERE p.pago_em = $1 AND s.forma = 'dinheiro') AS saidas
+     FROM caixa_gaveta g WHERE g.data = $1`,
+    [data],
+  )
+  if (!g) return null
+  const aberturaCentavos = decimalToCents(g.abertura)
+  const vendasDinheiroCentavos = decimalToCents(g.vendas)
+  const saidasDinheiroCentavos = decimalToCents(g.saidas)
+  const esperadoCentavos = aberturaCentavos + vendasDinheiroCentavos - saidasDinheiroCentavos
+  const contadoCentavos = g.contado === null ? null : decimalToCents(g.contado)
+  return {
+    data,
+    aberta: contadoCentavos === null,
+    aberturaCentavos,
+    vendasDinheiroCentavos,
+    saidasDinheiroCentavos,
+    esperadoCentavos,
+    contadoCentavos,
+    diferencaCentavos: contadoCentavos === null ? null : contadoCentavos - esperadoCentavos,
+  }
+}
+
+// ---------- Estoque de bebidas ----------
+
+export interface ItemEstoque {
+  produto: ProdutoId
+  nome: string
+  quantidade: number
+  minimo: number
+  situacao: 'ok' | 'baixo' | 'acabou'
+}
+
+export async function getEstoque(): Promise<ItemEstoque[]> {
+  const rows = await query<{ produto: string; minimo: number; quantidade: string | null }>(
+    `SELECT e.produto, e.minimo, (SELECT SUM(m.quantidade) FROM estoque_movimentos m WHERE m.produto = e.produto) AS quantidade
+     FROM estoque e`,
+  )
+  const ordem = PRODUTOS.map((p) => p.id as string)
+  return rows
+    .filter((r) => isProdutoId(r.produto))
+    .sort((a, b) => ordem.indexOf(a.produto) - ordem.indexOf(b.produto))
+    .map((r) => {
+      const quantidade = Number(r.quantidade ?? 0)
+      return {
+        produto: r.produto as ProdutoId,
+        nome: nomeProduto(r.produto),
+        quantidade,
+        minimo: r.minimo,
+        // Aviso em 0 = não avisar (bebida que a loja não controla).
+        situacao: r.minimo === 0 ? 'ok' : quantidade <= 0 ? 'acabou' : quantidade <= r.minimo ? 'baixo' : 'ok',
+      }
+    })
+}
+
+export interface MovimentoEstoque {
+  id: number
+  nome: string
+  quantidade: number
+  motivo: 'venda' | 'entrada' | 'ajuste'
+  criadoEm: string
+}
+
+export async function getMovimentosEstoque(limite = 20): Promise<MovimentoEstoque[]> {
+  const rows = await query<{ id: number; produto: string; quantidade: number; motivo: MovimentoEstoque['motivo']; criado_em: Date }>(
+    'SELECT id, produto, quantidade, motivo, criado_em FROM estoque_movimentos ORDER BY criado_em DESC, id DESC LIMIT $1',
+    [limite],
+  )
+  return rows.map((r) => ({
+    id: r.id,
+    nome: nomeProduto(r.produto),
+    quantidade: r.quantidade,
+    motivo: r.motivo,
+    criadoEm: r.criado_em.toISOString(),
+  }))
 }

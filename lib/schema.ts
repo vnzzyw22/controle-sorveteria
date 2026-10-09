@@ -1,7 +1,7 @@
 // Estrutura do banco. Todos os comandos são idempotentes: podem rodar várias vezes
 // sem apagar dados (o sistema roda isto automaticamente na primeira conexão).
 
-import { produtoPeloValorSql } from './produtos.ts'
+import { PRODUTOS, produtoPeloValorSql } from './produtos.ts'
 
 export const SCHEMA_SQL = /* sql */ `
 CREATE TABLE IF NOT EXISTS maquininhas (
@@ -122,6 +122,53 @@ CREATE TABLE IF NOT EXISTS outras_entradas (
   criado_em TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS outras_entradas_data_idx ON outras_entradas (data DESC, id DESC);
+
+-- Fechamento da gaveta: troco na abertura e quanto foi contado no fim do dia.
+CREATE TABLE IF NOT EXISTS caixa_gaveta (
+  data       DATE PRIMARY KEY,
+  abertura   NUMERIC(10,2) NOT NULL CHECK (abertura >= 0),
+  contado    NUMERIC(10,2) CHECK (contado >= 0),
+  aberto_em  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  fechado_em TIMESTAMPTZ
+);
+
+-- Estoque de bebidas: a quantidade é a soma dos movimentos (compras, contagens e vendas).
+CREATE TABLE IF NOT EXISTS estoque (
+  produto TEXT PRIMARY KEY,
+  minimo  INTEGER NOT NULL DEFAULT 6 CHECK (minimo >= 0)
+);
+INSERT INTO estoque (produto) VALUES ${PRODUTOS.filter((p) => p.grupo === 'bebida').map((p) => `('${p.id}')`).join(', ')}
+ON CONFLICT (produto) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS estoque_movimentos (
+  id         INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  produto    TEXT NOT NULL REFERENCES estoque(produto) ON DELETE CASCADE,
+  quantidade INTEGER NOT NULL,
+  motivo     TEXT NOT NULL CHECK (motivo IN ('venda', 'entrada', 'ajuste')),
+  entrada_id INTEGER REFERENCES entradas(id) ON DELETE CASCADE,
+  criado_em  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS estoque_movimentos_produto_idx ON estoque_movimentos (produto);
+CREATE INDEX IF NOT EXISTS estoque_movimentos_entrada_idx ON estoque_movimentos (entrada_id);
+
+-- Cada venda de bebida (lançada à mão ou vinda da maquininha) tira 1 do estoque. Se a venda muda de produto,
+-- a baixa acompanha; se a venda é excluída, o movimento some junto (ON DELETE CASCADE) e o estoque volta.
+CREATE OR REPLACE FUNCTION estoque_baixa_venda() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF TG_OP = 'UPDATE' THEN
+    IF NEW.produto IS NOT DISTINCT FROM OLD.produto THEN
+      RETURN NEW;
+    END IF;
+    DELETE FROM estoque_movimentos WHERE entrada_id = NEW.id AND motivo = 'venda';
+  END IF;
+  IF EXISTS (SELECT 1 FROM estoque WHERE produto = NEW.produto) THEN
+    INSERT INTO estoque_movimentos (produto, quantidade, motivo, entrada_id) VALUES (NEW.produto, -1, 'venda', NEW.id);
+  END IF;
+  RETURN NEW;
+END
+$$;
+CREATE OR REPLACE TRIGGER entradas_estoque AFTER INSERT OR UPDATE OF produto ON entradas
+FOR EACH ROW EXECUTE FUNCTION estoque_baixa_venda();
 
 -- Controle da busca automática de vendas (no máximo uma a cada 10 segundos).
 CREATE TABLE IF NOT EXISTS mp_estado (

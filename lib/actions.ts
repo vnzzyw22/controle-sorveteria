@@ -26,7 +26,7 @@ import {
 } from './money'
 import { SESSION_COOKIE, createSessionToken, passwordMatches } from './session'
 import { PRAZO_PADRAO } from './taxas'
-import { isProdutoId, produtoPeloValor, type ProdutoId } from './produtos'
+import { isProdutoId, nomeProduto, produtoPeloValor, type ProdutoId } from './produtos'
 
 export interface ActionResult {
   ok: boolean
@@ -691,4 +691,94 @@ export async function deleteOutraEntrada(id: number): Promise<ActionResult> {
   const rows = await query<{ id: number }>('DELETE FROM outras_entradas WHERE id = $1 RETURNING id', [id])
   refresh()
   return rows.length ? done('Entrada de valor excluída.') : fail('Essa entrada já não existe.')
+}
+
+// ---------- Gaveta (fechamento de caixa) ----------
+
+/** Valor em centavos que pode ser zero (troco da abertura, contagem da gaveta); campo vazio vale 0. */
+function centsOuZero(formData: FormData, key: string): number | null {
+  const n = int(formData, key)
+  return n !== null && n >= 0 && n < 100_000_000 ? n : null
+}
+
+function dataDoCaixa(formData: FormData): string | null {
+  const data = text(formData, 'data')
+  return isIsoDate(data) && data <= hoje() ? data : null
+}
+
+export async function abrirGaveta(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
+  await requireAuth()
+  const data = dataDoCaixa(formData)
+  if (!data) return fail('Data inválida.')
+  const troco = centsOuZero(formData, 'valor')
+  if (troco === null) return fail('Informe o troco da gaveta (pode ser R$ 0,00).')
+  await query(
+    `INSERT INTO caixa_gaveta (data, abertura) VALUES ($1, $2)
+     ON CONFLICT (data) DO UPDATE SET abertura = EXCLUDED.abertura`,
+    [data, centsToDecimal(troco)],
+  )
+  refresh()
+  return done('Caixa aberto. No fim do dia, conte a gaveta e feche o caixa.')
+}
+
+export async function fecharGaveta(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
+  await requireAuth()
+  const data = dataDoCaixa(formData)
+  if (!data) return fail('Data inválida.')
+  const contado = centsOuZero(formData, 'valor')
+  if (contado === null) return fail('Informe quanto tem na gaveta agora.')
+  const rows = await query<{ data: string }>(
+    'UPDATE caixa_gaveta SET contado = $2, fechado_em = now() WHERE data = $1 RETURNING data',
+    [data, centsToDecimal(contado)],
+  )
+  if (!rows.length) return fail('Abra o caixa antes de fechar.')
+  refresh()
+  return done('Caixa fechado.')
+}
+
+export async function reabrirGaveta(data: string): Promise<ActionResult> {
+  await requireAuth()
+  if (!isIsoDate(data)) return fail('Data inválida.')
+  await query('UPDATE caixa_gaveta SET contado = NULL, fechado_em = NULL WHERE data = $1', [data])
+  refresh()
+  return done('Caixa reaberto.')
+}
+
+// ---------- Estoque de bebidas ----------
+
+export async function movimentarEstoque(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
+  await requireAuth()
+  const produto = text(formData, 'produto')
+  const [item] = await query<{ produto: string }>('SELECT produto FROM estoque WHERE produto = $1', [produto])
+  if (!item) return fail('Produto sem controle de estoque.')
+  const nome = nomeProduto(produto)
+  const tipo = text(formData, 'tipo')
+  const n = int(formData, 'quantidade')
+
+  if (tipo === 'entrada') {
+    if (!n || n < 1 || n > 10_000) return fail('Informe quantas unidades chegaram.')
+    await query(`INSERT INTO estoque_movimentos (produto, quantidade, motivo) VALUES ($1, $2, 'entrada')`, [produto, n])
+    refresh()
+    return done(`+${n} ${nome} no estoque.`)
+  }
+  if (tipo === 'ajuste') {
+    if (n === null || n < 0 || n > 100_000) return fail('Informe quantas unidades você contou.')
+    const [atual] = await query<{ total: string | null }>(
+      'SELECT SUM(quantidade) AS total FROM estoque_movimentos WHERE produto = $1',
+      [produto],
+    )
+    const diferenca = n - Number(atual?.total ?? 0)
+    if (diferenca !== 0) {
+      await query(`INSERT INTO estoque_movimentos (produto, quantidade, motivo) VALUES ($1, $2, 'ajuste')`, [produto, diferenca])
+    }
+    refresh()
+    return done(`Estoque de ${nome} ajustado para ${n}.`)
+  }
+  if (tipo === 'minimo') {
+    if (n === null || n < 0 || n > 10_000) return fail('Informe o estoque mínimo.')
+    await query('UPDATE estoque SET minimo = $2 WHERE produto = $1', [produto, n])
+    refresh()
+    return done(`Aviso de ${nome} quando chegar em ${n} ou menos.`)
+  }
+  return fail('Operação inválida.')
 }
