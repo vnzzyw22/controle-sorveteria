@@ -102,6 +102,14 @@ CREATE TABLE IF NOT EXISTS mp_eventos (
 );
 CREATE INDEX IF NOT EXISTS mp_eventos_recebido_idx ON mp_eventos (recebido_em DESC);
 
+-- Saldo da empresa (caixa + conta) num dia: ponto de partida do "Saldo da empresa". Não é venda.
+CREATE TABLE IF NOT EXISTS saldo_inicial (
+  id            INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  valor         NUMERIC(12,2) NOT NULL,
+  data          DATE NOT NULL,
+  atualizado_em TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Controle da busca automática de vendas (no máximo uma a cada 20 segundos).
 CREATE TABLE IF NOT EXISTS mp_estado (
   chave TEXT PRIMARY KEY,

@@ -693,3 +693,41 @@ export async function ultimaEntradaId(): Promise<number> {
   const [r] = await query<{ ultima: number | null }>('SELECT max(id) AS ultima FROM entradas')
   return r?.ultima ?? 0
 }
+
+// ---------- Saldo da empresa ----------
+
+export interface SaldoEmpresa {
+  /** Saldo informado em Ajustes, no fim do dia `data`. */
+  inicialCentavos: number
+  data: string
+  /** Vendas depois de `data` cujo dinheiro já caiu (líquido, sem as taxas). */
+  entradasCentavos: number
+  /** Pagamentos marcados como pagos depois de `data`. */
+  saidasCentavos: number
+  /** Vendas depois de `data` cujo dinheiro ainda vai cair (cartão a receber). */
+  aReceberCentavos: number
+  atualCentavos: number
+}
+
+export async function getSaldoEmpresa(hoje: string): Promise<SaldoEmpresa | null> {
+  const [base] = await query<{ valor: string; data: string }>('SELECT valor, data FROM saldo_inicial WHERE id = 1')
+  if (!base) return null
+  const [mov] = await query<{ recebido: string | null; a_receber: string | null; pago: string | null }>(
+    `SELECT
+       (SELECT SUM(valor_liquido) FROM entradas WHERE data > $1 AND data <= $2 AND data_recebimento <= $2) AS recebido,
+       (SELECT SUM(valor_liquido) FROM entradas WHERE data > $1 AND data <= $2 AND data_recebimento > $2) AS a_receber,
+       (SELECT SUM(valor) FROM saidas_parcelas WHERE pago_em > $1 AND pago_em <= $2) AS pago`,
+    [base.data, hoje],
+  )
+  const inicialCentavos = decimalToCents(base.valor)
+  const entradasCentavos = decimalToCents(mov.recebido)
+  const saidasCentavos = decimalToCents(mov.pago)
+  return {
+    inicialCentavos,
+    data: base.data,
+    entradasCentavos,
+    saidasCentavos,
+    aReceberCentavos: decimalToCents(mov.a_receber),
+    atualCentavos: inicialCentavos + entradasCentavos - saidasCentavos,
+  }
+}

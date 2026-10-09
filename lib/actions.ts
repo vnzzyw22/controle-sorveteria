@@ -648,3 +648,19 @@ export async function verificarVendasNovas(): Promise<{ ultimaId: number }> {
   const [r] = await query<{ ultima: number | null }>('SELECT max(id) AS ultima FROM entradas')
   return { ultimaId: r?.ultima ?? 0 }
 }
+
+/** Ajustes: quanto a empresa tem (caixa + conta) no fim de um dia. Não entra como venda. */
+export async function salvarSaldoInicial(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
+  await requireAuth()
+  const valor = cents(formData, 'valor')
+  if (!valor) return fail('Informe quanto a empresa tem hoje.')
+  const data = text(formData, 'data')
+  if (!isIsoDate(data) || data > hoje()) return fail('Escolha uma data até hoje.')
+  await query(
+    `INSERT INTO saldo_inicial (id, valor, data) VALUES (1, $1, $2)
+     ON CONFLICT (id) DO UPDATE SET valor = EXCLUDED.valor, data = EXCLUDED.data, atualizado_em = now()`,
+    [centsToDecimal(valor), data],
+  )
+  refresh()
+  return done('Saldo da empresa salvo. Ele aparece no Caixa e não conta como venda.')
+}
