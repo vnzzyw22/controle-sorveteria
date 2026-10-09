@@ -595,7 +595,7 @@ export async function buscarVendasDaMaquininha(): Promise<ActionResult> {
     return done(
       r.lancadas
         ? `${r.lancadas} ${r.lancadas === 1 ? 'venda lançada' : 'vendas lançadas'} da maquininha.`
-        : 'Nenhuma venda nova da maquininha hoje.',
+        : `Nenhuma venda nova da maquininha hoje. Veja os detalhes em "Últimos avisos".`,
     )
   } catch (error) {
     return fail(error instanceof Error ? error.message : 'Não foi possível buscar as vendas.')

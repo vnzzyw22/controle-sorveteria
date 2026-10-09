@@ -1,7 +1,7 @@
 import { CheckCircle2, CircleDashed, TriangleAlert } from 'lucide-react'
 import { headers } from 'next/headers'
 import { formatHora, formatDataCurta, hoje } from '@/lib/dates'
-import { buscarTerminal, mpConfig, ultimosEventos, type Terminal } from '@/lib/mercadopago'
+import { buscarTerminal, contaDoToken, mpConfig, ultimosEventos, type ContaMP, type Terminal } from '@/lib/mercadopago'
 import { BuscarVendasBotao } from './buscar-vendas-botao'
 
 function Item({ ok, aviso, titulo, children }: { ok: boolean; aviso?: boolean; titulo: string; children: React.ReactNode }) {
@@ -27,13 +27,21 @@ export async function MercadoPagoPainel() {
   let terminal: Terminal | null = null
   let todos: Terminal[] = []
   let erroTerminal: string | undefined
+  let conta: ContaMP | undefined
+  let erroConta: string | undefined
   if (cfg.token) {
     try {
       ;({ terminal, todos, erro: erroTerminal } = await buscarTerminal())
     } catch (error) {
       erroTerminal = error instanceof Error ? error.message : 'Falha ao falar com o Mercado Pago.'
     }
+    try {
+      ;({ conta, erro: erroConta } = await contaDoToken())
+    } catch (error) {
+      erroConta = error instanceof Error ? error.message : 'Falha ao consultar a conta.'
+    }
   }
+  const contaDeTeste = conta?.tags?.some((t) => /test/i.test(t)) ?? false
   const eventos = await ultimosEventos(8).catch(() => [])
   const hojeIso = hoje()
 
@@ -48,10 +56,23 @@ export async function MercadoPagoPainel() {
       </p>
 
       <ul className="mt-2 divide-y divide-linha">
-        <Item ok={!!cfg.token} titulo="Token de acesso">
-          {cfg.token
-            ? 'Configurado.'
-            : 'Falta preencher MERCADOPAGO_ACCESS_TOKEN (painel do Mercado Pago > Suas integrações > Credenciais de produção).'}
+        <Item ok={!!cfg.token && !!conta && !contaDeTeste} aviso={!!cfg.token && (!conta || contaDeTeste)} titulo="Token de acesso">
+          {!cfg.token ? (
+            'Falta preencher MERCADOPAGO_ACCESS_TOKEN (painel do Mercado Pago > Suas integrações > Credenciais de produção).'
+          ) : conta ? (
+            <>
+              Conta do token: <strong className="text-cacau">{conta.nickname ?? 'sem apelido'}</strong>
+              {conta.email ? ` (${conta.email})` : ''} · ID {conta.id}. Confira se é a mesma conta logada na maquininha.
+              {contaDeTeste && (
+                <strong className="block text-alerta">
+                  Este token é de um usuário de TESTE: ele nunca enxerga as vendas reais. Use as credenciais de produção da
+                  conta real.
+                </strong>
+              )}
+            </>
+          ) : (
+            (erroConta ?? 'Não foi possível consultar a conta do token.')
+          )}
         </Item>
         <Item ok={!!terminal} aviso={!!cfg.token && !terminal} titulo="Maquininha">
           {!cfg.token ? (

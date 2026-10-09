@@ -31,6 +31,24 @@ function sdk() {
   return new MercadoPagoConfig({ accessToken: token, options: { timeout: 10_000 } })
 }
 
+// ---------- Conta dona do token ----------
+
+export interface ContaMP {
+  id: number
+  nickname?: string
+  email?: string
+  tags?: string[]
+}
+
+/** De qual conta do Mercado Pago é o token (para conferir se é a mesma da maquininha). */
+export async function contaDoToken(): Promise<{ conta?: ContaMP; erro?: string }> {
+  const { token } = mpConfig()
+  if (!token) return { erro: 'Token não configurado.' }
+  const r = await fetch(`${API}/users/me`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' })
+  if (!r.ok) return { erro: `O Mercado Pago respondeu ${r.status} ao consultar a conta do token.` }
+  return { conta: (await r.json()) as ContaMP }
+}
+
 // ---------- Maquininha ----------
 
 export interface Terminal {
@@ -259,8 +277,19 @@ export async function cancelarCobranca(orderId: string): Promise<void> {
 
 // ---------- Buscar as vendas do dia (sem depender do aviso) ----------
 
+function resumoPagamento(p: { date_created?: string; transaction_amount?: number; payment_type_id?: string; status?: string }, origem?: string) {
+  const quando = p.date_created ? new Date(p.date_created) : null
+  const data = quando
+    ? new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).format(quando)
+    : '?'
+  const valor = p.transaction_amount !== undefined ? `R$ ${p.transaction_amount.toFixed(2).replace('.', ',')}` : 'R$ ?'
+  return `${data} ${valor} (${p.payment_type_id ?? '?'}, ${p.status ?? '?'}${origem ? `, origem ${origem}` : ''})`
+}
+
 /** Busca os pagamentos do dia na conta e lança os que vieram da maquininha e ainda não estão no sistema. */
-export async function sincronizarDia(dia: string): Promise<{ lancadas: number; jaEstavam: number; ignoradas: number }> {
+export async function sincronizarDia(
+  dia: string,
+): Promise<{ lancadas: number; jaEstavam: number; ignoradas: number; detalhe: string }> {
   const busca = await new Payment(sdk()).search({
     options: {
       range: 'date_created',
@@ -268,26 +297,41 @@ export async function sincronizarDia(dia: string): Promise<{ lancadas: number; j
       end_date: `${dia}T23:59:59.999-03:00`,
       sort: 'date_created',
       criteria: 'asc',
-      limit: 200,
+      limit: 100,
     },
   })
   const resultado = { lancadas: 0, jaEstavam: 0, ignoradas: 0 }
+  const motivos: string[] = []
   for (const resumo of busca.results ?? []) {
     if (!resumo.id) continue
     const p = (await new Payment(sdk()).get({ id: resumo.id })) as PagamentoMP
     const r = await registrarPagamento(p)
     if (r.entradaId) resultado.lancadas++
     else if (r.texto === 'já estava lançada') resultado.jaEstavam++
-    else resultado.ignoradas++
+    else {
+      resultado.ignoradas++
+      motivos.push(`${resumoPagamento(p as never, p.point_of_interaction?.type)}: ${r.texto}`)
+    }
   }
-  await registrarEvento('busca manual', dia, `${resultado.lancadas} lançadas, ${resultado.jaEstavam} já estavam, ${resultado.ignoradas} ignoradas`)
-  return resultado
+
+  let detalhe = `${resultado.lancadas} lançadas, ${resultado.jaEstavam} já estavam, ${resultado.ignoradas} ignoradas`
+  if (motivos.length) detalhe += `. Ignoradas: ${motivos.slice(0, 5).join(' | ')}`
+  if (!busca.results?.length) {
+    // Nenhum pagamento hoje: mostra os últimos da conta, para saber se o token enxerga as vendas da maquininha.
+    const ultimos = await new Payment(sdk()).search({ options: { sort: 'date_created', criteria: 'desc', limit: 3 } })
+    const lista = (ultimos.results ?? []).map((p) => resumoPagamento(p as never))
+    detalhe += lista.length
+      ? `. Nenhum pagamento hoje nesta conta. Últimos pagamentos da conta: ${lista.join(' | ')}`
+      : '. Esta conta não tem NENHUM pagamento registrado no Mercado Pago.'
+  }
+  await registrarEvento('busca manual', dia, detalhe)
+  return { ...resultado, detalhe }
 }
 
 // ---------- Registro dos avisos ----------
 
 export async function registrarEvento(tipo: string, recursoId: string | null, resultado: string) {
-  await query('INSERT INTO mp_eventos (tipo, recurso_id, resultado) VALUES ($1, $2, $3)', [tipo, recursoId, resultado.slice(0, 300)])
+  await query('INSERT INTO mp_eventos (tipo, recurso_id, resultado) VALUES ($1, $2, $3)', [tipo, recursoId, resultado.slice(0, 900)])
   await query(`DELETE FROM mp_eventos WHERE recebido_em < now() - interval '60 days'`)
 }
 
