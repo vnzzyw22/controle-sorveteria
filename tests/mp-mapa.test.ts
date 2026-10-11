@@ -78,3 +78,12 @@ test('Mercado Pago: só pagamentos do balcão viram venda (cartão na Point, Pix
   assert.ok(!veioDoBalcao({ point_of_interaction: { type: 'PIX_TRANSFER' } }))
   assert.ok(!veioDoBalcao({}))
 })
+
+test('Mercado Pago: Pix com tipo diferente ainda vira venda em Pix', () => {
+  const base = { id: 7, status: 'approved', transaction_amount: 10, date_approved: '2026-10-10T15:00:00.000-03:00' }
+  const pix = vendaDoPagamento({ ...base, payment_type_id: 'digital_currency', payment_method_id: 'pix' })
+  assert.ok(!('ignorar' in pix) && pix.forma === 'pix')
+  const daCobranca = vendaDoPagamento({ ...base, payment_type_id: 'outro', external_reference: 'sorveteria-abc' })
+  assert.ok(!('ignorar' in daCobranca) && daCobranca.forma === 'pix')
+  assert.ok('ignorar' in vendaDoPagamento({ ...base, payment_type_id: 'ticket' }))
+})

@@ -9,6 +9,7 @@ export interface PagamentoMP {
   id?: string | number
   status?: string
   payment_type_id?: string
+  payment_method_id?: string
   installments?: number
   transaction_amount?: number
   date_approved?: string
@@ -63,7 +64,10 @@ export interface VendaDoMP {
 export function vendaDoPagamento(p: PagamentoMP): VendaDoMP | { ignorar: string } {
   if (p.id === undefined || p.id === null) return { ignorar: 'pagamento sem id' }
   if (p.status !== 'approved') return { ignorar: `status ${p.status ?? 'desconhecido'}` }
-  const forma = formaDoPagamento(p.payment_type_id)
+  // Pix pode vir com outro tipo; numa cobrança deste sistema, o que não é cartão é Pix.
+  const forma =
+    formaDoPagamento(p.payment_type_id) ??
+    (p.payment_method_id === 'pix' || (p.external_reference ?? '').startsWith(PREFIXO_REF) ? 'pix' : null)
   if (!forma) return { ignorar: `tipo de pagamento ${p.payment_type_id ?? 'desconhecido'}` }
 
   const bruto = decimalToCents(p.transaction_amount ?? 0)

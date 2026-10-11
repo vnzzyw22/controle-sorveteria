@@ -316,7 +316,8 @@ export async function atualizarCobranca(orderId: string): Promise<{ status: stri
 
 /** Plano B: o pagamento ainda não aparece na busca, então lança pela própria cobrança com a taxa de Configurações. */
 async function lancarPelaCobranca(order: Awaited<ReturnType<Order['get']>>): Promise<number | null> {
-  const pg = order.transactions?.payments?.[0]
+  const pagamentos = order.transactions?.payments ?? []
+  const pg = pagamentos.find((p) => ['processed', 'approved', 'accredited'].includes(p.status ?? '')) ?? pagamentos[0]
   if (!pg?.id) return null
   const tipo = pg.payment_method?.type
   const forma: FormaEntrada = tipo === 'credit_card' ? 'credito' : tipo === 'debit_card' ? 'debito' : 'pix'
@@ -328,15 +329,16 @@ async function lancarPelaCobranca(order: Awaited<ReturnType<Order['get']>>): Pro
     'SELECT percentual, prazo_dias FROM taxas WHERE maquininha_id = $1 AND forma = $2 AND parcelas = $3',
     [maquininhaId, forma, parcelas],
   )
-  const data = hoje()
+  // Dia em que a cobrança foi paga (pode ser conferida só no dia seguinte).
+  const data = dataBrasilia(order.last_updated_date) ?? dataBrasilia(order.created_date) ?? hoje()
   // A busca automática pode ter lançado este pagamento há pouco, com o id dele: usa essa venda.
   const [recente] = await query<{ id: number }>(
     `SELECT e.id FROM entradas e
      WHERE e.origem = 'maquininha' AND e.data = $1 AND e.forma = $2 AND e.valor_bruto = $3
-       AND e.criado_em > now() - interval '15 minutes'
+       AND e.criado_em > COALESCE($4::timestamptz, now()) - interval '15 minutes'
        AND NOT EXISTS (SELECT 1 FROM mp_cobrancas c WHERE c.entrada_id = e.id)
      ORDER BY e.criado_em DESC LIMIT 1`,
-    [data, forma, centsToDecimal(bruto)],
+    [data, forma, centsToDecimal(bruto), order.last_updated_date ?? null],
   )
   if (recente) return recente.id
   const percentual = taxa ? Number(taxa.percentual) : 0
@@ -416,12 +418,36 @@ async function pagamentosDoDia(dia: string): Promise<PagamentoMP[]> {
   return [...porId.values()]
 }
 
+/**
+ * Cobranças enviadas para a maquininha que ainda não viraram venda (a tela fechou antes do pagamento,
+ * ou o pagamento não aparece na busca, como acontece com o Pix): confere cada uma no Mercado Pago.
+ */
+async function conferirCobrancasPendentes(): Promise<number> {
+  const pendentes = await query<{ order_id: string }>(
+    `SELECT order_id FROM mp_cobrancas
+     WHERE entrada_id IS NULL AND criado_em > now() - interval '3 days'
+       AND status NOT IN ('canceled', 'cancelled', 'expired', 'failed', 'refunded')
+     ORDER BY criado_em DESC LIMIT 5`,
+  )
+  let lancadas = 0
+  for (const { order_id } of pendentes) {
+    try {
+      const r = await atualizarCobranca(order_id)
+      if (r.entradaId) lancadas++
+    } catch {
+      // Uma cobrança com problema não impede a busca das vendas.
+    }
+  }
+  return lancadas
+}
+
 /** Busca os pagamentos do dia na conta e lança os que vieram da maquininha e ainda não estão no sistema. */
 export async function sincronizarDia(
   dia: string,
   opcoes: { registrar?: boolean } = {},
 ): Promise<{ lancadas: number; jaEstavam: number; ignoradas: number; detalhe: string }> {
   const registrar = opcoes.registrar ?? true
+  const daCobranca = await conferirCobrancasPendentes()
   const pagamentos = await pagamentosDoDia(dia)
   const ids = pagamentos.map((p) => String(p.id))
   const existentes = new Set(
@@ -430,7 +456,7 @@ export async function sincronizarDia(
     ),
   )
 
-  const resultado = { lancadas: 0, jaEstavam: 0, ignoradas: 0 }
+  const resultado = { lancadas: daCobranca, jaEstavam: 0, ignoradas: 0 }
   const motivos: string[] = []
   for (const resumo of pagamentos) {
     const id = String(resumo.id)
