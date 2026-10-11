@@ -861,3 +861,66 @@ export async function getMovimentosEstoque(limite = 20): Promise<MovimentoEstoqu
     criadoEm: r.criado_em.toISOString(),
   }))
 }
+
+// ---------- Vendas repetidas (lançada à mão e também vinda da maquininha) ----------
+
+/**
+ * Condição SQL para "a" ser a mesma venda que "b" (que veio da maquininha com o id do pagamento):
+ * mesmo dia, forma e valor, feita até 1 hora antes ou depois, e "a" lançada à mão ou pela cobrança (sem id de pagamento).
+ */
+export const PAR_REPETIDO_SQL = /* sql */ `
+  a.id <> b.id AND NOT a.nao_repetida AND a.data = b.data AND a.forma = b.forma AND a.valor_bruto = b.valor_bruto
+  AND b.origem = 'maquininha' AND b.mp_payment_id ~ '^[0-9]+$'
+  AND (
+    (a.mp_payment_id IS NULL AND (a.maquininha_id IS NULL OR a.maquininha_id = b.maquininha_id))
+    OR (a.origem = 'maquininha' AND a.mp_payment_id !~ '^[0-9]+$')
+  )
+  AND abs(extract(epoch FROM a.criado_em - b.criado_em)) < 3600`
+
+export interface VendaRepetida {
+  repetidaId: number
+  ficaId: number
+  valorCentavos: number
+  forma: FormaEntrada
+  /** Como a repetida entrou: à mão ou pela cobrança enviada à maquininha. */
+  comoEntrou: 'manual' | 'cobranca'
+  horaRepetida: string
+  horaMaquininha: string
+}
+
+export async function getVendasRepetidas(data: string): Promise<VendaRepetida[]> {
+  const rows = await query<{
+    repetida_id: number
+    fica_id: number
+    valor_bruto: string
+    forma: FormaEntrada
+    origem: string
+    hora_a: string
+    hora_b: string
+  }>(
+    `SELECT a.id AS repetida_id, b.id AS fica_id, a.valor_bruto, a.forma, a.origem,
+       to_char(a.criado_em AT TIME ZONE 'America/Sao_Paulo', 'HH24:MI') AS hora_a,
+       to_char(b.criado_em AT TIME ZONE 'America/Sao_Paulo', 'HH24:MI') AS hora_b
+     FROM entradas b JOIN entradas a ON ${PAR_REPETIDO_SQL}
+     WHERE b.data = $1
+     ORDER BY abs(extract(epoch FROM a.criado_em - b.criado_em)), a.id`,
+    [data],
+  )
+  // Cada venda entra em um par só (a mais próxima no horário).
+  const usadas = new Set<number>()
+  const pares: VendaRepetida[] = []
+  for (const r of rows) {
+    if (usadas.has(r.repetida_id) || usadas.has(r.fica_id)) continue
+    usadas.add(r.repetida_id).add(r.fica_id)
+    pares.push({
+      repetidaId: r.repetida_id,
+      ficaId: r.fica_id,
+      valorCentavos: decimalToCents(r.valor_bruto),
+      forma: r.forma,
+      comoEntrou: r.origem === 'maquininha' ? 'cobranca' : 'manual',
+      horaRepetida: r.hora_a,
+      horaMaquininha: r.hora_b,
+    })
+  }
+  return pares.sort((x, y) => x.horaMaquininha.localeCompare(y.horaMaquininha))
+}

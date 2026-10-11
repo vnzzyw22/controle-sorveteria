@@ -4,7 +4,7 @@ import { MercadoPagoConfig, Order, Payment, Point } from 'mercadopago'
 import { revalidatePath } from 'next/cache'
 import { query } from './db'
 import { calcularTaxa, centsToDecimal, decimalToCents, type FormaEntrada } from './money'
-import { PREFIXO_REF, acharTerminal, dataBrasilia, veioDoBalcao, vendaDoPagamento, type PagamentoMP } from './mp-mapa'
+import { PREFIXO_REF, acharTerminal, dataBrasilia, veioDoBalcao, vendaDoPagamento, type PagamentoMP, type VendaDoMP } from './mp-mapa'
 import { addDays, hoje } from './dates'
 import { produtoPeloValor } from './produtos'
 
@@ -118,8 +118,43 @@ async function idMaquininhaMercadoPago(): Promise<number> {
   return m.id
 }
 
+/**
+ * Venda já existente que é este mesmo pagamento, mas ainda sem o id dele:
+ * - a lançada pela cobrança (modo PDV) antes de o pagamento aparecer na busca do Mercado Pago;
+ * - a lançada à mão (Lançar venda) para a mesma venda da maquininha: mesmo dia, forma e valor, feita perto da hora do pagamento.
+ * Em vez de lançar de novo, o pagamento "adota" essa venda (fica com a taxa real e o id do pagamento).
+ */
+async function vendaParaAdotar(p: PagamentoMP, v: VendaDoMP, maquininhaId: number): Promise<number | null> {
+  const ref = p.external_reference ?? ''
+  if (ref.startsWith(PREFIXO_REF)) {
+    const [c] = await query<{ entrada_id: number | null }>(
+      `SELECT c.entrada_id FROM mp_cobrancas c JOIN entradas e ON e.id = c.entrada_id
+       WHERE c.external_reference = $1 AND e.mp_payment_id IS DISTINCT FROM $2`,
+      [ref, v.mpPaymentId],
+    )
+    if (c?.entrada_id) return c.entrada_id
+  }
+  const quando = p.date_approved ?? p.date_created ?? new Date().toISOString()
+  const [e] = await query<{ id: number }>(
+    `SELECT id FROM entradas
+     WHERE data = $1 AND forma = $2 AND valor_bruto = $3
+       AND (
+         (mp_payment_id IS NULL AND (maquininha_id IS NULL OR maquininha_id = $4))
+         OR (origem = 'maquininha' AND mp_payment_id !~ '^[0-9]+$')
+       )
+       AND criado_em BETWEEN $5::timestamptz - interval '1 hour' AND $5::timestamptz + interval '1 hour'
+     ORDER BY abs(extract(epoch FROM criado_em - $5::timestamptz))
+     LIMIT 1`,
+    [v.data, v.forma, centsToDecimal(v.brutoCentavos), maquininhaId, quando],
+  )
+  return e?.id ?? null
+}
+
 /** Lança (ou remove, se foi estornado) a venda de um pagamento. Devolve o que aconteceu, em texto. */
-export async function registrarPagamento(p: PagamentoMP, exigirMaquininha = true): Promise<{ texto: string; entradaId?: number }> {
+export async function registrarPagamento(
+  p: PagamentoMP,
+  exigirMaquininha = true,
+): Promise<{ texto: string; entradaId?: number; nova?: boolean }> {
   const id = p.id === undefined ? '' : String(p.id)
   if (['refunded', 'cancelled', 'charged_back'].includes(p.status ?? '')) {
     const removidas = await query('DELETE FROM entradas WHERE mp_payment_id = $1 RETURNING id', [id])
@@ -131,6 +166,39 @@ export async function registrarPagamento(p: PagamentoMP, exigirMaquininha = true
   const v = vendaDoPagamento(p)
   if ('ignorar' in v) return { texto: `ignorado: ${v.ignorar}` }
 
+  const [ja] = await query<{ id: number }>('SELECT id FROM entradas WHERE mp_payment_id = $1', [v.mpPaymentId])
+  if (ja) return { texto: 'já estava lançada', entradaId: ja.id }
+
+  const maquininhaId = await idMaquininhaMercadoPago()
+  const adotar = await vendaParaAdotar(p, v, maquininhaId)
+  if (adotar) {
+    try {
+      const [row] = await query<{ id: number }>(
+        `UPDATE entradas SET origem = 'maquininha', mp_payment_id = $2, maquininha_id = $3, parcelas = $4,
+                taxa_percentual = $5, valor_taxa = $6, valor_liquido = $7, data_recebimento = $8
+         WHERE id = $1 AND (mp_payment_id IS NULL OR mp_payment_id !~ '^[0-9]+$') RETURNING id`,
+        [
+          adotar,
+          v.mpPaymentId,
+          maquininhaId,
+          v.parcelas,
+          v.taxaPercentual.toFixed(2),
+          centsToDecimal(v.taxaCentavos),
+          centsToDecimal(v.liquidoCentavos),
+          v.dataRecebimento,
+        ],
+      )
+      if (row) {
+        revalidatePath('/', 'layout')
+        return { texto: `já estava lançada (#${row.id}); agora ligada ao pagamento`, entradaId: row.id }
+      }
+    } catch (error) {
+      // Outro aviso ligou este pagamento ao mesmo tempo.
+      if ((error as { code?: string }).code === '23505') return { texto: 'já estava lançada' }
+      throw error
+    }
+  }
+
   const [row] = await query<{ id: number }>(
     `INSERT INTO entradas (data, descricao, forma, maquininha_id, parcelas, valor_bruto, taxa_percentual,
                            valor_taxa, valor_liquido, data_recebimento, origem, mp_payment_id, produto)
@@ -140,7 +208,7 @@ export async function registrarPagamento(p: PagamentoMP, exigirMaquininha = true
       v.data,
       'Maquininha Mercado Pago',
       v.forma,
-      await idMaquininhaMercadoPago(),
+      maquininhaId,
       v.parcelas,
       centsToDecimal(v.brutoCentavos),
       v.taxaPercentual.toFixed(2),
@@ -153,7 +221,7 @@ export async function registrarPagamento(p: PagamentoMP, exigirMaquininha = true
   )
   if (!row) return { texto: 'já estava lançada' }
   revalidatePath('/', 'layout')
-  return { texto: `venda lançada (#${row.id})`, entradaId: row.id }
+  return { texto: `venda lançada (#${row.id})`, entradaId: row.id, nova: true }
 }
 
 /** Aviso do tipo "payment": busca o pagamento no Mercado Pago (nunca confia no corpo do aviso). */
@@ -162,7 +230,7 @@ export async function processarPagamento(paymentId: string): Promise<string> {
   const r = await registrarPagamento(p)
   // Pagamento de cobrança enviada pelo sistema: liga a venda à cobrança.
   if (r.entradaId && (p.external_reference ?? '').startsWith(PREFIXO_REF)) {
-    await query('UPDATE mp_cobrancas SET entrada_id = $2, atualizado_em = now() WHERE external_reference = $1', [
+    await query('UPDATE mp_cobrancas SET entrada_id = $2, atualizado_em = now() WHERE external_reference = $1 AND entrada_id IS NULL', [
       p.external_reference,
       r.entradaId,
     ])
@@ -260,9 +328,19 @@ async function lancarPelaCobranca(order: Awaited<ReturnType<Order['get']>>): Pro
     'SELECT percentual, prazo_dias FROM taxas WHERE maquininha_id = $1 AND forma = $2 AND parcelas = $3',
     [maquininhaId, forma, parcelas],
   )
+  const data = hoje()
+  // A busca automática pode ter lançado este pagamento há pouco, com o id dele: usa essa venda.
+  const [recente] = await query<{ id: number }>(
+    `SELECT e.id FROM entradas e
+     WHERE e.origem = 'maquininha' AND e.data = $1 AND e.forma = $2 AND e.valor_bruto = $3
+       AND e.criado_em > now() - interval '15 minutes'
+       AND NOT EXISTS (SELECT 1 FROM mp_cobrancas c WHERE c.entrada_id = e.id)
+     ORDER BY e.criado_em DESC LIMIT 1`,
+    [data, forma, centsToDecimal(bruto)],
+  )
+  if (recente) return recente.id
   const percentual = taxa ? Number(taxa.percentual) : 0
   const { taxaCentavos, liquidoCentavos } = calcularTaxa(bruto, percentual)
-  const data = hoje()
   const [row] = await query<{ id: number }>(
     `INSERT INTO entradas (data, descricao, forma, maquininha_id, parcelas, valor_bruto, taxa_percentual,
                            valor_taxa, valor_liquido, data_recebimento, origem, mp_payment_id, produto)
@@ -364,8 +442,8 @@ export async function sincronizarDia(
     // A busca já traz o pagamento completo; só consulta de novo se faltar a origem.
     const p = resumo.point_of_interaction ? resumo : ((await new Payment(sdk()).get({ id })) as PagamentoMP)
     const r = await registrarPagamento(p)
-    if (r.entradaId) resultado.lancadas++
-    else if (r.texto === 'já estava lançada') resultado.jaEstavam++
+    if (r.nova) resultado.lancadas++
+    else if (r.entradaId || r.texto === 'já estava lançada') resultado.jaEstavam++
     else {
       resultado.ignoradas++
       motivos.push(`${resumoPagamento(p, p.point_of_interaction?.type)}: ${r.texto}`)

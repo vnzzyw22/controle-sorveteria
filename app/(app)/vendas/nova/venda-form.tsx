@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { AlertTriangle, Banknote, CreditCard, Pencil, QrCode, Wallet } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useActionState, useEffect, useRef, useState } from 'react'
+import { startTransition, useActionState, useEffect, useRef, useState } from 'react'
 import { AnimatedBRL, FormaBadge, MoneyInput, Segmented, SubmitButton } from '@/components/ui'
 import { useToast } from '@/components/toast'
 import { PRAZO_PADRAO } from '@/lib/taxas'
@@ -45,7 +45,14 @@ export function VendaForm({
   /** Integração com a maquininha Mercado Pago configurada (token presente). */
   maquininhaMP?: boolean
 }) {
-  const [state, action] = useActionState(edicao ? updateEntrada : createEntrada, null)
+  const [state, action, enviando] = useActionState(edicao ? updateEntrada : createEntrada, null)
+  // Envia sem o "reset" automático do formulário: com ele, depois de um aviso de erro a forma de pagamento
+  // e a maquininha voltavam ao padrão na página, mesmo aparecendo outra coisa marcada na tela.
+  function enviar(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    const fd = new FormData(e.currentTarget, (e.nativeEvent as SubmitEvent).submitter)
+    startTransition(() => action(fd))
+  }
   const toast = useToast()
   const router = useRouter()
   const valorRef = useRef<HTMLInputElement>(null)
@@ -165,7 +172,7 @@ export function VendaForm({
 
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
-      <form action={action} className="cartao space-y-6 p-5 sm:p-7">
+      <form onSubmit={enviar} className="cartao space-y-6 p-5 sm:p-7">
         {edicao && <input type="hidden" name="id" value={edicao.entrada.id} />}
         <div>
           <label htmlFor="valor" className="rotulo">
@@ -351,12 +358,17 @@ export function VendaForm({
         </AnimatePresence>
 
         {erro && (
-          <p key={erro.at} role="alert" className="rounded-xl bg-saida/10 p-3.5 text-sm font-medium text-saida">
-            {erro.message}
-          </p>
+          <div key={erro.at} role="alert" className="rounded-xl bg-saida/10 p-3.5 text-sm font-medium text-saida">
+            <p>{erro.message}</p>
+            {erro.repetida && (
+              <button type="submit" name="confirmar" value="1" disabled={enviando} className="mt-2 font-semibold underline">
+                É outra venda, lançar mesmo assim
+              </button>
+            )}
+          </div>
         )}
 
-        <SubmitButton pendingLabel={edicao ? 'Salvando…' : 'Lançando…'} disabled={!valor} className="w-full py-4 text-lg">
+        <SubmitButton pending={enviando} pendingLabel={edicao ? 'Salvando…' : 'Lançando…'} disabled={!valor} className="w-full py-4 text-lg">
           {edicao ? 'Salvar alterações' : `Lançar venda ${valor ? `de ${formatBRL(valor)}` : ''}`}
         </SubmitButton>
         {maquininhaMP && !edicao && usaMaquininha && maqNome === 'Mercado Pago' && (

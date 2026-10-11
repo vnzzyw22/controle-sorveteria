@@ -1,11 +1,12 @@
 import { ArrowDownCircle, ArrowUpCircle, PlusCircle, ChevronLeft, ChevronRight } from 'lucide-react'
 import Link from 'next/link'
-import { getCaixaDoDia, getContasAlerta, getEstoque, getGaveta, getPainelMeta, getSaldoEmpresa } from '@/lib/data'
+import { getCaixaDoDia, getContasAlerta, getEstoque, getGaveta, getPainelMeta, getSaldoEmpresa, getVendasRepetidas } from '@/lib/data'
 import { montarResumoDia } from '@/lib/resumo-dia'
 import { ResumoWhatsApp } from '@/components/resumo-whatsapp'
 import { EstoqueAviso } from './estoque-aviso'
 import { GavetaCartao } from './gaveta'
 import { SaldoEmpresaCartao } from './saldo-empresa'
+import { VendasRepetidas } from './vendas-repetidas'
 import { addDays, formatData, formatDataExtenso, hoje, isIsoDate } from '@/lib/dates'
 import { CaixaDoDia } from './caixa-do-dia'
 import { ContasParaPagar } from './contas-para-pagar'
@@ -17,13 +18,14 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
   const data = isIsoDate(params.data) && params.data <= today ? params.data : today
   const ehHoje = data === today
   // O aviso de contas olha sempre para o dia de hoje de verdade, mesmo ao consultar um dia antigo.
-  const [caixa, contas, painel, saldo, gaveta, estoque] = await Promise.all([
+  const [caixa, contas, painel, saldo, gaveta, estoque, repetidas] = await Promise.all([
     getCaixaDoDia(data),
     getContasAlerta(today),
     ehHoje ? getPainelMeta(today) : null,
     ehHoje ? getSaldoEmpresa(today) : null,
     getGaveta(data),
     getEstoque(),
+    getVendasRepetidas(data),
   ])
   // Enquanto ninguém registrou o estoque, todas as bebidas estão em zero: não é "acabando", é "sem controle".
   const controlaEstoque = estoque.some((i) => i.quantidade !== 0)
@@ -124,6 +126,8 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
           Entrada de valor
         </Link>
       </div>
+
+      <VendasRepetidas pares={repetidas} />
 
       <GavetaCartao gaveta={gaveta} data={data} ehHoje={ehHoje} />
 

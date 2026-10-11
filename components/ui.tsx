@@ -68,13 +68,16 @@ export function SubmitButton({
   pendingLabel = 'Salvando…',
   className = '',
   disabled,
+  pending: enviando,
 }: {
   children: React.ReactNode
   pendingLabel?: string
   className?: string
   disabled?: boolean
+  /** Para formulários enviados por onSubmit (o useFormStatus só enxerga o envio por action). */
+  pending?: boolean
 }) {
-  const { pending } = useFormStatus()
+  const pending = useFormStatus().pending || !!enviando
   return (
     <motion.button
       type="submit"

@@ -7,7 +7,7 @@ import { redirect } from 'next/navigation'
 import { requireAuth } from './auth'
 import { nomeDoMes } from './analise'
 import { CATEGORIAS_PADRAO, categoriaCanonica } from './categorias'
-import { getCategoriasUsadas } from './data'
+import { PAR_REPETIDO_SQL, getCategoriasUsadas } from './data'
 import { atualizarCobranca, cancelarCobranca, criarCobranca, mpPronto, mudarModoMaquininha, sincronizarDia, sincronizarSeNecessario, type ModoMaquininha } from './mercadopago'
 import { query, transaction } from './db'
 import { addDays, addMonths, hoje, isIsoDate } from './dates'
@@ -34,6 +34,8 @@ export interface ActionResult {
   id?: number
   /** Muda a cada envio para a interface saber que chegou uma resposta nova. */
   at?: number
+  /** A venda parece já ter chegado da maquininha: a tela oferece "Lançar mesmo assim". */
+  repetida?: boolean
 }
 
 const fail = (message: string): ActionResult => ({ ok: false, message, at: Date.now() })
@@ -166,11 +168,31 @@ export async function createEntrada(_prev: ActionResult | null, formData: FormDa
   const t = await taxaDaVenda(d)
   if ('erro' in t) return fail(t.erro)
 
+  // A venda da maquininha entra sozinha: avisa antes de lançar a mesma venda de novo à mão.
+  if (d.forma !== 'dinheiro' && text(formData, 'confirmar') !== '1') {
+    const [igual] = await query<{ id: number; hora: string }>(
+      `SELECT e.id, to_char(e.criado_em AT TIME ZONE 'America/Sao_Paulo', 'HH24:MI') AS hora
+       FROM entradas e JOIN maquininhas m ON m.id = e.maquininha_id
+       WHERE e.origem = 'maquininha' AND e.data = $1 AND e.forma = $2 AND e.valor_bruto = $3
+         AND e.criado_em > now() - interval '1 hour' AND ($4::int IS NULL OR e.maquininha_id = $4)
+       ORDER BY e.criado_em DESC LIMIT 1`,
+      [d.data, d.forma, centsToDecimal(d.valor), d.maquininhaId],
+    )
+    if (igual) {
+      return {
+        ...fail(
+          `Essa venda já chegou sozinha da maquininha às ${igual.hora} (venda #${igual.id}). Não precisa lançar de novo.`,
+        ),
+        repetida: true,
+      }
+    }
+  }
+
   const { taxaCentavos, liquidoCentavos } = calcularTaxa(d.valor, t.percentual)
   const [row] = await query<{ id: number }>(
     `INSERT INTO entradas (data, descricao, forma, maquininha_id, parcelas, valor_bruto, taxa_percentual,
-                           valor_taxa, valor_liquido, data_recebimento, produto)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
+                           valor_taxa, valor_liquido, data_recebimento, produto, nao_repetida)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id`,
     [
       d.data,
       d.descricao,
@@ -183,6 +205,7 @@ export async function createEntrada(_prev: ActionResult | null, formData: FormDa
       centsToDecimal(liquidoCentavos),
       addDays(d.data, t.prazoDias),
       d.produto,
+      text(formData, 'confirmar') === '1',
     ],
   )
   refresh()
@@ -236,6 +259,7 @@ export async function updateEntrada(_prev: ActionResult | null, formData: FormDa
       centsToDecimal(liquidoCentavos),
       addDays(d.data, t.prazoDias),
       d.produto,
+      text(formData, 'confirmar') === '1',
     ],
   )
   refresh()
@@ -248,6 +272,42 @@ export async function deleteEntrada(id: number): Promise<ActionResult> {
   const rows = await query<{ id: number }>('DELETE FROM entradas WHERE id = $1 RETURNING id', [id])
   refresh()
   return rows.length ? done('Venda excluída.') : fail('Essa venda já não existe.')
+}
+
+/**
+ * Junta uma venda repetida: fica a que veio da maquininha (com a taxa real), levando o produto e a
+ * descrição da outra; a repetida é apagada (e a baixa de estoque dela volta).
+ */
+export async function juntarVendaRepetida(repetidaId: number, ficaId: number): Promise<ActionResult> {
+  await requireAuth()
+  if (!Number.isInteger(repetidaId) || !Number.isInteger(ficaId)) return fail('Venda inválida.')
+  const juntou = await transaction(async (client) => {
+    const { rows } = await client.query<{ produto: string | null; descricao: string | null; origem: string }>(
+      `SELECT a.produto, a.descricao, a.origem FROM entradas a JOIN entradas b ON ${PAR_REPETIDO_SQL}
+       WHERE a.id = $1 AND b.id = $2 FOR UPDATE OF a, b`,
+      [repetidaId, ficaId],
+    )
+    const a = rows[0]
+    if (!a) return false
+    await client.query(
+      `UPDATE entradas SET produto = COALESCE($2, produto), descricao = COALESCE($3, descricao) WHERE id = $1`,
+      [ficaId, a.produto, a.origem === 'maquininha' ? null : a.descricao],
+    )
+    await client.query('UPDATE mp_cobrancas SET entrada_id = $2 WHERE entrada_id = $1', [repetidaId, ficaId])
+    await client.query('DELETE FROM entradas WHERE id = $1', [repetidaId])
+    return true
+  })
+  refresh()
+  return juntou ? done('Pronto, ficou uma venda só.') : fail('Essas vendas já não estão repetidas.')
+}
+
+/** "Não é repetida": tira a venda do aviso de vendas repetidas. */
+export async function marcarNaoRepetida(id: number): Promise<ActionResult> {
+  await requireAuth()
+  if (!Number.isInteger(id)) return fail('Venda inválida.')
+  await query('UPDATE entradas SET nao_repetida = true WHERE id = $1', [id])
+  refresh()
+  return done('Certo, as duas vendas continuam no caixa.')
 }
 
 // ---------- Saídas ----------
