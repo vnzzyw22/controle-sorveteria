@@ -171,11 +171,11 @@ export async function createEntrada(_prev: ActionResult | null, formData: FormDa
   // A venda da maquininha entra sozinha: avisa antes de lançar a mesma venda de novo à mão.
   if (d.forma !== 'dinheiro' && text(formData, 'confirmar') !== '1') {
     const [igual] = await query<{ id: number; hora: string }>(
-      `SELECT e.id, to_char(e.criado_em AT TIME ZONE 'America/Sao_Paulo', 'HH24:MI') AS hora
+      `SELECT e.id, to_char(COALESCE(e.pago_em, e.criado_em) AT TIME ZONE 'America/Sao_Paulo', 'HH24:MI') AS hora
        FROM entradas e JOIN maquininhas m ON m.id = e.maquininha_id
        WHERE e.origem = 'maquininha' AND e.data = $1 AND e.forma = $2 AND e.valor_bruto = $3
-         AND e.criado_em > now() - interval '1 hour' AND ($4::int IS NULL OR e.maquininha_id = $4)
-       ORDER BY e.criado_em DESC LIMIT 1`,
+         AND COALESCE(e.pago_em, e.criado_em) > now() - interval '1 hour' AND ($4::int IS NULL OR e.maquininha_id = $4)
+       ORDER BY COALESCE(e.pago_em, e.criado_em) DESC LIMIT 1`,
       [d.data, d.forma, centsToDecimal(d.valor), d.maquininhaId],
     )
     if (igual) {

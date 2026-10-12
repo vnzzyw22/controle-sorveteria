@@ -79,6 +79,8 @@ ALTER TABLE entradas ADD COLUMN IF NOT EXISTS mp_payment_id TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS entradas_mp_payment_idx ON entradas (mp_payment_id) WHERE mp_payment_id IS NOT NULL;
 -- Venda que alguém confirmou não ser repetida da maquininha (some do aviso de repetidas).
 ALTER TABLE entradas ADD COLUMN IF NOT EXISTS nao_repetida BOOLEAN NOT NULL DEFAULT false;
+-- Hora em que o cliente pagou na maquininha (a venda pode entrar no site bem depois, quando alguém abre o site).
+ALTER TABLE entradas ADD COLUMN IF NOT EXISTS pago_em TIMESTAMPTZ;
 
 -- Produto vendido (cascão, self-service, bebidas...). Vendas antigas são classificadas pelo valor.
 ALTER TABLE entradas ADD COLUMN IF NOT EXISTS produto TEXT;

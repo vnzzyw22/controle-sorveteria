@@ -866,16 +866,18 @@ export async function getMovimentosEstoque(limite = 20): Promise<MovimentoEstoqu
 
 /**
  * Condição SQL para "a" ser a mesma venda que "b" (que veio da maquininha com o id do pagamento):
- * mesmo dia, forma e valor, feita até 1 hora antes ou depois, e "a" lançada à mão ou pela cobrança (sem id de pagamento).
+ * mesmo dia, forma e valor, e "a" lançada à mão na mesma maquininha ou pela cobrança (sem id de pagamento).
  */
 export const PAR_REPETIDO_SQL = /* sql */ `
   a.id <> b.id AND NOT a.nao_repetida AND a.data = b.data AND a.forma = b.forma AND a.valor_bruto = b.valor_bruto
   AND b.origem = 'maquininha' AND b.mp_payment_id ~ '^[0-9]+$'
   AND (
-    (a.mp_payment_id IS NULL AND (a.maquininha_id IS NULL OR a.maquininha_id = b.maquininha_id))
+    (a.mp_payment_id IS NULL AND a.maquininha_id = b.maquininha_id)
     OR (a.origem = 'maquininha' AND a.mp_payment_id !~ '^[0-9]+$')
-  )
-  AND abs(extract(epoch FROM a.criado_em - b.criado_em)) < 3600`
+    -- Pix lançado sem maquininha pode ter caído direto no banco: só conta se foi perto da hora do pagamento.
+    OR (a.mp_payment_id IS NULL AND a.maquininha_id IS NULL
+        AND abs(extract(epoch FROM a.criado_em - COALESCE(b.pago_em, b.criado_em))) < 3 * 3600)
+  )`
 
 export interface VendaRepetida {
   repetidaId: number
@@ -900,10 +902,10 @@ export async function getVendasRepetidas(data: string): Promise<VendaRepetida[]>
   }>(
     `SELECT a.id AS repetida_id, b.id AS fica_id, a.valor_bruto, a.forma, a.origem,
        to_char(a.criado_em AT TIME ZONE 'America/Sao_Paulo', 'HH24:MI') AS hora_a,
-       to_char(b.criado_em AT TIME ZONE 'America/Sao_Paulo', 'HH24:MI') AS hora_b
+       to_char(COALESCE(b.pago_em, b.criado_em) AT TIME ZONE 'America/Sao_Paulo', 'HH24:MI') AS hora_b
      FROM entradas b JOIN entradas a ON ${PAR_REPETIDO_SQL}
      WHERE b.data = $1
-     ORDER BY abs(extract(epoch FROM a.criado_em - b.criado_em)), a.id`,
+     ORDER BY abs(extract(epoch FROM a.criado_em - COALESCE(b.pago_em, b.criado_em))), a.id`,
     [data],
   )
   // Cada venda entra em um par só (a mais próxima no horário).

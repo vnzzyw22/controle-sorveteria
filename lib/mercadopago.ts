@@ -121,7 +121,8 @@ async function idMaquininhaMercadoPago(): Promise<number> {
 /**
  * Venda já existente que é este mesmo pagamento, mas ainda sem o id dele:
  * - a lançada pela cobrança (modo PDV) antes de o pagamento aparecer na busca do Mercado Pago;
- * - a lançada à mão (Lançar venda) para a mesma venda da maquininha: mesmo dia, forma e valor, feita perto da hora do pagamento.
+ * - a lançada à mão (Lançar venda) para a mesma venda da maquininha: mesmo dia, forma e valor (Pix sem maquininha
+ *   só se foi lançado até 1 hora antes ou depois do pagamento, porque pode ter caído direto no banco).
  * Em vez de lançar de novo, o pagamento "adota" essa venda (fica com a taxa real e o id do pagamento).
  */
 async function vendaParaAdotar(p: PagamentoMP, v: VendaDoMP, maquininhaId: number): Promise<number | null> {
@@ -139,10 +140,11 @@ async function vendaParaAdotar(p: PagamentoMP, v: VendaDoMP, maquininhaId: numbe
     `SELECT id FROM entradas
      WHERE data = $1 AND forma = $2 AND valor_bruto = $3
        AND (
-         (mp_payment_id IS NULL AND (maquininha_id IS NULL OR maquininha_id = $4))
+         (mp_payment_id IS NULL AND maquininha_id = $4)
          OR (origem = 'maquininha' AND mp_payment_id !~ '^[0-9]+$')
+         OR (mp_payment_id IS NULL AND maquininha_id IS NULL
+             AND criado_em BETWEEN $5::timestamptz - interval '1 hour' AND $5::timestamptz + interval '1 hour')
        )
-       AND criado_em BETWEEN $5::timestamptz - interval '1 hour' AND $5::timestamptz + interval '1 hour'
      ORDER BY abs(extract(epoch FROM criado_em - $5::timestamptz))
      LIMIT 1`,
     [v.data, v.forma, centsToDecimal(v.brutoCentavos), maquininhaId, quando],
@@ -175,7 +177,7 @@ export async function registrarPagamento(
     try {
       const [row] = await query<{ id: number }>(
         `UPDATE entradas SET origem = 'maquininha', mp_payment_id = $2, maquininha_id = $3, parcelas = $4,
-                taxa_percentual = $5, valor_taxa = $6, valor_liquido = $7, data_recebimento = $8
+                taxa_percentual = $5, valor_taxa = $6, valor_liquido = $7, data_recebimento = $8, pago_em = $9
          WHERE id = $1 AND (mp_payment_id IS NULL OR mp_payment_id !~ '^[0-9]+$') RETURNING id`,
         [
           adotar,
@@ -186,6 +188,7 @@ export async function registrarPagamento(
           centsToDecimal(v.taxaCentavos),
           centsToDecimal(v.liquidoCentavos),
           v.dataRecebimento,
+          p.date_approved ?? p.date_created ?? null,
         ],
       )
       if (row) {
@@ -201,8 +204,8 @@ export async function registrarPagamento(
 
   const [row] = await query<{ id: number }>(
     `INSERT INTO entradas (data, descricao, forma, maquininha_id, parcelas, valor_bruto, taxa_percentual,
-                           valor_taxa, valor_liquido, data_recebimento, origem, mp_payment_id, produto)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'maquininha', $11, $12)
+                           valor_taxa, valor_liquido, data_recebimento, origem, mp_payment_id, produto, pago_em)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'maquininha', $11, $12, $13)
      ON CONFLICT (mp_payment_id) WHERE mp_payment_id IS NOT NULL DO NOTHING RETURNING id`,
     [
       v.data,
@@ -217,6 +220,7 @@ export async function registrarPagamento(
       v.dataRecebimento,
       v.mpPaymentId,
       produtoPeloValor(v.brutoCentavos),
+      p.date_approved ?? p.date_created ?? null,
     ],
   )
   if (!row) return { texto: 'já estava lançada' }
@@ -345,8 +349,8 @@ async function lancarPelaCobranca(order: Awaited<ReturnType<Order['get']>>): Pro
   const { taxaCentavos, liquidoCentavos } = calcularTaxa(bruto, percentual)
   const [row] = await query<{ id: number }>(
     `INSERT INTO entradas (data, descricao, forma, maquininha_id, parcelas, valor_bruto, taxa_percentual,
-                           valor_taxa, valor_liquido, data_recebimento, origem, mp_payment_id, produto)
-     VALUES ($1, 'Maquininha Mercado Pago', $2, $3, $4, $5, $6, $7, $8, $9, 'maquininha', $10, $11)
+                           valor_taxa, valor_liquido, data_recebimento, origem, mp_payment_id, produto, pago_em)
+     VALUES ($1, 'Maquininha Mercado Pago', $2, $3, $4, $5, $6, $7, $8, $9, 'maquininha', $10, $11, $12)
      ON CONFLICT (mp_payment_id) WHERE mp_payment_id IS NOT NULL DO NOTHING RETURNING id`,
     [
       data,
@@ -360,6 +364,7 @@ async function lancarPelaCobranca(order: Awaited<ReturnType<Order['get']>>): Pro
       addDays(data, taxa?.prazo_dias ?? 0),
       pg.id,
       produtoPeloValor(bruto),
+      order.last_updated_date ?? null,
     ],
   )
   if (row) revalidatePath('/', 'layout')
