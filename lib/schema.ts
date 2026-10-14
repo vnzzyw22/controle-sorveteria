@@ -126,6 +126,20 @@ CREATE TABLE IF NOT EXISTS outras_entradas (
   criado_em TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS outras_entradas_data_idx ON outras_entradas (data DESC, id DESC);
+-- Onde a entrada de valor caiu: no banco (Mercado Pago) ou em dinheiro.
+ALTER TABLE outras_entradas ADD COLUMN IF NOT EXISTS conta TEXT NOT NULL DEFAULT 'banco';
+
+-- Saldo de cada conta da empresa: banco (Mercado Pago) e dinheiro em espécie. Vale a partir do momento em que foi salvo.
+CREATE TABLE IF NOT EXISTS saldos (
+  conta         TEXT PRIMARY KEY CHECK (conta IN ('banco', 'especie')),
+  valor         NUMERIC(12,2) NOT NULL,
+  data          DATE NOT NULL,
+  atualizado_em TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- O saldo único de antes passa a ser o do banco.
+INSERT INTO saldos (conta, valor, data, atualizado_em)
+SELECT 'banco', valor, data, atualizado_em FROM saldo_inicial WHERE id = 1
+ON CONFLICT (conta) DO NOTHING;
 
 -- Fechamento da gaveta: troco na abertura e quanto foi contado no fim do dia.
 CREATE TABLE IF NOT EXISTS caixa_gaveta (

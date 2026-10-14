@@ -41,6 +41,10 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
     produtos: caixa.entradas.map((e) => e.produto),
     gaveta,
     saldoEmpresaCentavos: saldo?.atualCentavos ?? null,
+    saldoContas: {
+      bancoCentavos: saldo?.contas.banco?.atualCentavos ?? null,
+      especieCentavos: saldo?.contas.especie?.atualCentavos ?? null,
+    },
     estoqueBaixo: ehHoje && controlaEstoque
       ? estoque.filter((i) => i.situacao !== 'ok').map((i) => ({ nome: i.nome, quantidade: Math.max(i.quantidade, 0) }))
       : [],

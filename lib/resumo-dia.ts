@@ -16,6 +16,8 @@ export interface DadosResumoDia {
   produtos: string[]
   gaveta?: { esperadoCentavos: number; contadoCentavos: number | null } | null
   saldoEmpresaCentavos?: number | null
+  /** Saldo de cada conta (banco e espécie); null = ainda não informado. */
+  saldoContas?: { bancoCentavos: number | null; especieCentavos: number | null }
   estoqueBaixo?: { nome: string; quantidade: number }[]
 }
 
@@ -54,6 +56,9 @@ export function montarResumoDia(d: DadosResumoDia): string {
   }
   if (d.saldoEmpresaCentavos !== null && d.saldoEmpresaCentavos !== undefined) {
     linhas.push('', `*Saldo da empresa:* ${formatBRL(d.saldoEmpresaCentavos)}`)
+    const c = d.saldoContas
+    if (c?.bancoCentavos != null) linhas.push(`• Mercado Pago (banco): ${formatBRL(c.bancoCentavos)}`)
+    if (c?.especieCentavos != null) linhas.push(`• Dinheiro em espécie: ${formatBRL(c.especieCentavos)}`)
   }
   return linhas.join('\n')
 }

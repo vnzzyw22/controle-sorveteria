@@ -18,6 +18,7 @@ test('resumo do dia para o WhatsApp', () => {
     produtos: ['red_bull', 'cascao_1', 'self_service', 'cascao_1'],
     gaveta: { esperadoCentavos: 6999, contadoCentavos: 6899 },
     saldoEmpresaCentavos: 309249,
+    saldoContas: { bancoCentavos: 57900, especieCentavos: 251349 },
     estoqueBaixo: [{ nome: 'Red Bull', quantidade: 2 }],
   }).replace(/ /g, ' ')
   assert.match(texto, /Sexta-feira, 9 de outubro/)
@@ -28,5 +29,5 @@ test('resumo do dia para o WhatsApp', () => {
   assert.match(texto, /Self-service: 1\n• Cascão 1 bola: 2\n.*\n?• Red Bull: 1/)
   assert.match(texto, /faltou R\$ 1,00/)
   assert.match(texto, /Bebidas acabando:\* Red Bull \(2\)/)
-  assert.match(texto, /Saldo da empresa:\* R\$ 3\.092,49/)
+  assert.match(texto, /Saldo da empresa:\* R\$ 3\.092,49\n• Mercado Pago \(banco\): R\$ 579,00\n• Dinheiro em espécie: R\$ 2\.513,49/)
 })

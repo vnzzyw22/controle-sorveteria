@@ -26,7 +26,15 @@ export default async function ConfigPage() {
         description="Saldo da empresa, meta do mês e taxas de cada maquininha. Confira as taxas no app ou contrato de cada uma — mudam conforme o plano."
       />
       <div className="space-y-6">
-        <SaldoForm hoje={today} atual={saldo ? { valorCentavos: saldo.inicialCentavos, data: saldo.data } : null} />
+        <SaldoForm
+          hoje={today}
+          atual={{
+            banco: saldo?.contas.banco ? { valorCentavos: saldo.contas.banco.inicialCentavos, data: saldo.contas.banco.data } : null,
+            especie: saldo?.contas.especie
+              ? { valorCentavos: saldo.contas.especie.inicialCentavos, data: saldo.contas.especie.data }
+              : null,
+          }}
+        />
         <MetaForm mes={mes} metaCentavos={meta?.valorCentavos ?? null} desde={meta?.desde ?? null} />
         <div>
           <h2 className="mb-3 font-display text-lg font-bold">Taxas das maquininhas</h2>

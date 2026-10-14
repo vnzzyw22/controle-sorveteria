@@ -1,22 +1,30 @@
 'use client'
 
 import { AnimatePresence, motion } from 'framer-motion'
-import { useActionState, useEffect, useRef, useState } from 'react'
-import { ConfirmButton, MoneyInput, SubmitButton } from '@/components/ui'
+import { startTransition, useActionState, useEffect, useRef, useState } from 'react'
+import { ConfirmButton, MoneyInput, Segmented, SubmitButton } from '@/components/ui'
 import { useToast } from '@/components/toast'
 import { createOutraEntrada, deleteOutraEntrada } from '@/lib/actions'
 import type { OutraEntrada } from '@/lib/data'
+import { CONTA_LABEL, type Conta } from '@/lib/contas'
 import { formatData } from '@/lib/dates'
 import { formatBRL } from '@/lib/money'
 
 const SUGESTOES = ['Renda extra', 'Aporte dos sócios', 'Empréstimo', 'Devolução', 'Outros']
 
 export function EntradaValorForm({ hoje, recentes }: { hoje: string; recentes: OutraEntrada[] }) {
-  const [state, action] = useActionState(createOutraEntrada, null)
+  const [state, action, enviando] = useActionState(createOutraEntrada, null)
+  // Envia sem o "reset" automático do formulário, que voltaria a conta escolhida para o padrão.
+  function enviar(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    const fd = new FormData(e.currentTarget)
+    startTransition(() => action(fd))
+  }
   const toast = useToast()
   const [valor, setValor] = useState(0)
   const [descricao, setDescricao] = useState('')
   const [data, setData] = useState(hoje)
+  const [conta, setConta] = useState<Conta>('banco')
   const valorRef = useRef<HTMLInputElement>(null)
   const lastAt = useRef<number | undefined>(undefined)
 
@@ -33,7 +41,7 @@ export function EntradaValorForm({ hoje, recentes }: { hoje: string; recentes: O
 
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
-      <form action={action} className="cartao space-y-6 p-5 sm:p-7">
+      <form onSubmit={enviar} className="cartao space-y-6 p-5 sm:p-7">
         <div>
           <label htmlFor="valor" className="rotulo">
             Valor que entrou
@@ -75,6 +83,18 @@ export function EntradaValorForm({ hoje, recentes }: { hoje: string; recentes: O
           />
         </fieldset>
 
+        <Segmented
+          name="conta"
+          legend="Onde o dinheiro entrou?"
+          layoutId="conta-entrada-valor"
+          value={conta}
+          onChange={setConta}
+          options={[
+            { value: 'banco', label: CONTA_LABEL.banco },
+            { value: 'especie', label: CONTA_LABEL.especie },
+          ]}
+        />
+
         <div className="sm:w-56">
           <label htmlFor="data" className="rotulo">
             Data
@@ -91,7 +111,7 @@ export function EntradaValorForm({ hoje, recentes }: { hoje: string; recentes: O
           />
         </div>
 
-        <SubmitButton pendingLabel="Lançando…" disabled={!valor || !descricao.trim()} className="w-full py-4 text-lg">
+        <SubmitButton pending={enviando} pendingLabel="Lançando…" disabled={!valor || !descricao.trim()} className="w-full py-4 text-lg">
           Lançar entrada {valor ? `de ${formatBRL(valor)}` : ''}
         </SubmitButton>
       </form>
@@ -110,7 +130,9 @@ export function EntradaValorForm({ hoje, recentes }: { hoje: string; recentes: O
                   <div className="flex items-start justify-between gap-3">
                     <span className="min-w-0">
                       <span className="block truncate font-medium">{e.descricao}</span>
-                      <span className="tabular text-xs text-cacau-suave">{formatData(e.data)}</span>
+                      <span className="tabular text-xs text-cacau-suave">
+                        {formatData(e.data)} · {CONTA_LABEL[e.conta]}
+                      </span>
                     </span>
                     <span className="tabular shrink-0 font-semibold text-entrada">+ {formatBRL(e.valorCentavos)}</span>
                   </div>

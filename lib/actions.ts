@@ -21,11 +21,13 @@ import {
   centsToDecimal,
   decimalToCents,
   dividirParcelas,
+  formatBRL,
   type FormaEntrada,
   type FormaSaida,
 } from './money'
 import { SESSION_COOKIE, createSessionToken, passwordMatches } from './session'
 import { PRAZO_PADRAO } from './taxas'
+import { CONTA_LABEL, isConta } from './contas'
 import { isProdutoId, nomeProduto, produtoPeloValor, type ProdutoId } from './produtos'
 
 export interface ActionResult {
@@ -714,17 +716,19 @@ export async function verificarVendasNovas(): Promise<{ ultimaId: number }> {
 /** Ajustes: quanto a empresa tem (caixa + conta) no fim de um dia. Não entra como venda. */
 export async function salvarSaldoInicial(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
   await requireAuth()
-  const valor = cents(formData, 'valor')
-  if (!valor) return fail('Informe quanto a empresa tem hoje.')
+  const conta = text(formData, 'conta')
+  if (!isConta(conta)) return fail('Escolha a conta.')
+  const valor = centsOuZero(formData, 'valor')
+  if (valor === null) return fail('Informe quanto tem nessa conta (pode ser R$ 0,00).')
   const data = text(formData, 'data')
   if (!isIsoDate(data) || data > hoje()) return fail('Escolha uma data até hoje.')
   await query(
-    `INSERT INTO saldo_inicial (id, valor, data) VALUES (1, $1, $2)
-     ON CONFLICT (id) DO UPDATE SET valor = EXCLUDED.valor, data = EXCLUDED.data, atualizado_em = now()`,
-    [centsToDecimal(valor), data],
+    `INSERT INTO saldos (conta, valor, data) VALUES ($1, $2, $3)
+     ON CONFLICT (conta) DO UPDATE SET valor = EXCLUDED.valor, data = EXCLUDED.data, atualizado_em = now()`,
+    [conta, centsToDecimal(valor), data],
   )
   refresh()
-  return done('Saldo da empresa salvo. Ele aparece no Caixa e não conta como venda.')
+  return done(`Saldo de ${CONTA_LABEL[conta]} salvo: ${formatBRL(valor)}.`)
 }
 
 // ---------- Entradas de valor (renda extra, aporte...) ----------
@@ -737,9 +741,11 @@ export async function createOutraEntrada(_prev: ActionResult | null, formData: F
   if (!descricao) return fail('Diga de onde veio o dinheiro (ex.: "Renda extra").')
   const data = text(formData, 'data')
   if (!isIsoDate(data) || data > hoje()) return fail('Escolha uma data até hoje.')
+  const conta = text(formData, 'conta')
+  if (!isConta(conta)) return fail('Diga onde o dinheiro entrou: no banco ou em espécie.')
   const [row] = await query<{ id: number }>(
-    'INSERT INTO outras_entradas (data, descricao, valor) VALUES ($1, $2, $3) RETURNING id',
-    [data, descricao, centsToDecimal(valor)],
+    'INSERT INTO outras_entradas (data, descricao, valor, conta) VALUES ($1, $2, $3, $4) RETURNING id',
+    [data, descricao, centsToDecimal(valor), conta],
   )
   refresh()
   return done('Entrada de valor lançada. Ela soma no saldo da empresa e não conta como venda.', row.id)

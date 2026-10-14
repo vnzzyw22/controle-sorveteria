@@ -10,6 +10,7 @@ import {
   type PainelMeta,
 } from './analise'
 import { chaveCategoria } from './categorias'
+import { isConta, type Conta } from './contas'
 import { query } from './db'
 import { PRODUTOS, isProdutoId, nomeProduto, produtoPeloValor, type ProdutoId } from './produtos'
 import { addDays } from './dates'
@@ -696,7 +697,8 @@ export async function ultimaEntradaId(): Promise<number> {
 
 // ---------- Saldo da empresa ----------
 
-export interface SaldoEmpresa {
+export interface SaldoConta {
+  conta: Conta
   /** Saldo informado em Ajustes no dia `data` (vale a partir do momento em que foi salvo). */
   inicialCentavos: number
   data: string
@@ -711,32 +713,38 @@ export interface SaldoEmpresa {
   atualCentavos: number
 }
 
-export async function getSaldoEmpresa(hoje: string): Promise<SaldoEmpresa | null> {
-  const [base] = await query<{ valor: string; data: string; salvo_em: Date }>(
-    'SELECT valor, data, atualizado_em AS salvo_em FROM saldo_inicial WHERE id = 1',
-  )
-  if (!base) return null
+export interface SaldoEmpresa {
+  /** Cada conta só aparece depois que o saldo dela é informado em Ajustes. */
+  contas: Record<Conta, SaldoConta | null>
+  atualCentavos: number
+  aReceberCentavos: number
+}
+
+async function saldoDaConta(conta: Conta, base: { valor: string; data: string; salvo_em: Date }, hoje: string): Promise<SaldoConta> {
   // Entra na conta o que aconteceu depois do saldo: dias seguintes, ou o mesmo dia mas lançado depois de salvar.
+  // Dinheiro mexe na espécie; Pix, cartão e boleto mexem no banco.
+  const daConta = conta === 'especie' ? "= 'dinheiro'" : "<> 'dinheiro'"
   const [mov] = await query<{ recebido: string | null; a_receber: string | null; pago: string | null; outras: string | null }>(
     `WITH vendas AS (
        SELECT valor_liquido, data_recebimento FROM entradas
-       WHERE data <= $2 AND (data > $1 OR (data = $1 AND criado_em > $3))
+       WHERE forma ${daConta} AND data <= $2 AND (data > $1 OR (data = $1 AND criado_em > $3))
      )
      SELECT
        (SELECT SUM(valor_liquido) FROM vendas WHERE data_recebimento <= $2) AS recebido,
        (SELECT SUM(valor_liquido) FROM vendas WHERE data_recebimento > $2) AS a_receber,
        (SELECT SUM(p.valor) FROM saidas_parcelas p JOIN saidas s ON s.id = p.saida_id
-        WHERE p.pago_em <= $2
+        WHERE s.forma ${daConta} AND p.pago_em <= $2
           AND (p.pago_em > $1 OR (p.pago_em = $1 AND COALESCE(p.pago_registrado_em, s.criado_em) > $3))) AS pago,
        (SELECT SUM(valor) FROM outras_entradas
-        WHERE data <= $2 AND (data > $1 OR (data = $1 AND criado_em > $3))) AS outras`,
-    [base.data, hoje, base.salvo_em],
+        WHERE conta = $4 AND data <= $2 AND (data > $1 OR (data = $1 AND criado_em > $3))) AS outras`,
+    [base.data, hoje, base.salvo_em, conta],
   )
   const inicialCentavos = decimalToCents(base.valor)
   const entradasCentavos = decimalToCents(mov.recebido)
   const saidasCentavos = decimalToCents(mov.pago)
   const outrasCentavos = decimalToCents(mov.outras)
   return {
+    conta,
     inicialCentavos,
     data: base.data,
     entradasCentavos,
@@ -747,6 +755,23 @@ export async function getSaldoEmpresa(hoje: string): Promise<SaldoEmpresa | null
   }
 }
 
+export async function getSaldoEmpresa(hoje: string): Promise<SaldoEmpresa | null> {
+  const bases = await query<{ conta: Conta; valor: string; data: string; salvo_em: Date }>(
+    'SELECT conta, valor, data, atualizado_em AS salvo_em FROM saldos',
+  )
+  if (!bases.length) return null
+  const contas: Record<Conta, SaldoConta | null> = { banco: null, especie: null }
+  for (const s of await Promise.all(bases.filter((b) => isConta(b.conta)).map((b) => saldoDaConta(b.conta, b, hoje)))) {
+    contas[s.conta] = s
+  }
+  const lista = Object.values(contas).filter((c): c is SaldoConta => c !== null)
+  return {
+    contas,
+    atualCentavos: lista.reduce((t, c) => t + c.atualCentavos, 0),
+    aReceberCentavos: lista.reduce((t, c) => t + c.aReceberCentavos, 0),
+  }
+}
+
 // ---------- Entradas de valor (não são vendas) ----------
 
 export interface OutraEntrada {
@@ -754,14 +779,21 @@ export interface OutraEntrada {
   data: string
   descricao: string
   valorCentavos: number
+  conta: Conta
 }
 
 export async function listOutrasEntradas(limite = 30): Promise<OutraEntrada[]> {
-  const rows = await query<{ id: number; data: string; descricao: string; valor: string }>(
-    'SELECT id, data, descricao, valor FROM outras_entradas ORDER BY data DESC, id DESC LIMIT $1',
+  const rows = await query<{ id: number; data: string; descricao: string; valor: string; conta: string }>(
+    'SELECT id, data, descricao, valor, conta FROM outras_entradas ORDER BY data DESC, id DESC LIMIT $1',
     [limite],
   )
-  return rows.map((r) => ({ id: r.id, data: r.data, descricao: r.descricao, valorCentavos: decimalToCents(r.valor) }))
+  return rows.map((r) => ({
+    id: r.id,
+    data: r.data,
+    descricao: r.descricao,
+    valorCentavos: decimalToCents(r.valor),
+    conta: isConta(r.conta) ? r.conta : 'banco',
+  }))
 }
 
 // ---------- Gaveta (fechamento de caixa) ----------
