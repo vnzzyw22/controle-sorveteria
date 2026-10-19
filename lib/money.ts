@@ -71,6 +71,18 @@ export interface CalculoTaxa {
   liquidoCentavos: number
 }
 
+/** Menor moeda usada no troco: 5 centavos. */
+export const MOEDA_TROCO = 5
+
+/**
+ * Troco que dá para entregar com as moedas que existem: o exato arredondado para baixo
+ * até 5 centavos (ex.: troco exato de R$ 20,13 vira R$ 20,10).
+ */
+export function trocoParaDar(valorCentavos: number, recebidoCentavos: number): number {
+  const exato = recebidoCentavos - valorCentavos
+  return exato <= 0 ? 0 : Math.floor(exato / MOEDA_TROCO) * MOEDA_TROCO
+}
+
 /**
  * Taxa da maquininha sobre o valor bruto, arredondada ao centavo.
  * A conta usa inteiros (centavos x centésimos de ponto percentual) para ser exata.

@@ -22,6 +22,8 @@ import {
   decimalToCents,
   dividirParcelas,
   formatBRL,
+  MOEDA_TROCO,
+  trocoParaDar,
   type FormaEntrada,
   type FormaSaida,
 } from './money'
@@ -102,6 +104,8 @@ interface DadosEntrada {
   maquininhaId: number | null
   parcelas: number
   produto: ProdutoId
+  recebido: number | null
+  troco: number | null
 }
 
 const falhou = (x: object): x is ActionResult => 'ok' in x
@@ -134,7 +138,18 @@ function lerEntrada(formData: FormData): DadosEntrada | ActionResult {
   const produtoRaw = text(formData, 'produto')
   const produto = isProdutoId(produtoRaw) ? produtoRaw : produtoPeloValor(valor)
 
-  return { valor, forma, data, descricao, maquininhaId, parcelas, produto }
+  // Dinheiro: nota que o cliente deu (opcional) e troco entregue.
+  let recebido: number | null = null
+  let troco: number | null = null
+  if (forma === 'dinheiro' && cents(formData, 'recebido')) {
+    recebido = cents(formData, 'recebido')!
+    if (recebido < valor) return fail('O valor recebido é menor que o da venda.')
+    troco = centsOuZero(formData, 'troco') ?? trocoParaDar(valor, recebido)
+    // Pode arredondar o troco para baixo à vontade; para cima, só até a moeda seguinte.
+    if (troco > Math.ceil((recebido - valor) / MOEDA_TROCO) * MOEDA_TROCO) return fail('O troco está maior que o devido.')
+  }
+
+  return { valor, forma, data, descricao, maquininhaId, parcelas, produto, recebido, troco }
 }
 
 /**
@@ -193,8 +208,8 @@ export async function createEntrada(_prev: ActionResult | null, formData: FormDa
   const { taxaCentavos, liquidoCentavos } = calcularTaxa(d.valor, t.percentual)
   const [row] = await query<{ id: number }>(
     `INSERT INTO entradas (data, descricao, forma, maquininha_id, parcelas, valor_bruto, taxa_percentual,
-                           valor_taxa, valor_liquido, data_recebimento, produto, nao_repetida)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id`,
+                           valor_taxa, valor_liquido, data_recebimento, produto, nao_repetida, valor_recebido, troco)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
     [
       d.data,
       d.descricao,
@@ -208,10 +223,13 @@ export async function createEntrada(_prev: ActionResult | null, formData: FormDa
       addDays(d.data, t.prazoDias),
       d.produto,
       text(formData, 'confirmar') === '1',
+      d.recebido === null ? null : centsToDecimal(d.recebido),
+      d.troco === null ? null : centsToDecimal(d.troco),
     ],
   )
   refresh()
-  return done(t.semTaxa ? 'Venda lançada sem taxa (taxa ainda não cadastrada).' : 'Venda lançada.', row.id)
+  const aviso = t.semTaxa ? 'Venda lançada sem taxa (taxa ainda não cadastrada).' : 'Venda lançada.'
+  return done(d.troco ? `${aviso} Troco: ${formatBRL(d.troco)}.` : aviso, row.id)
 }
 
 export async function updateEntrada(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
@@ -246,7 +264,7 @@ export async function updateEntrada(_prev: ActionResult | null, formData: FormDa
   await query(
     `UPDATE entradas SET data = $2, descricao = $3, forma = $4, maquininha_id = $5, parcelas = $6,
             valor_bruto = $7, taxa_percentual = $8, valor_taxa = $9, valor_liquido = $10, data_recebimento = $11,
-            produto = $12
+            produto = $12, valor_recebido = $13, troco = $14
      WHERE id = $1`,
     [
       id,
@@ -261,7 +279,8 @@ export async function updateEntrada(_prev: ActionResult | null, formData: FormDa
       centsToDecimal(liquidoCentavos),
       addDays(d.data, t.prazoDias),
       d.produto,
-      text(formData, 'confirmar') === '1',
+      d.recebido === null ? null : centsToDecimal(d.recebido),
+      d.troco === null ? null : centsToDecimal(d.troco),
     ],
   )
   refresh()

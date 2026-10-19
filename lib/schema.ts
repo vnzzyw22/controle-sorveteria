@@ -81,6 +81,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS entradas_mp_payment_idx ON entradas (mp_paymen
 ALTER TABLE entradas ADD COLUMN IF NOT EXISTS nao_repetida BOOLEAN NOT NULL DEFAULT false;
 -- Hora em que o cliente pagou na maquininha (a venda pode entrar no site bem depois, quando alguém abre o site).
 ALTER TABLE entradas ADD COLUMN IF NOT EXISTS pago_em TIMESTAMPTZ;
+-- Venda em dinheiro: nota que o cliente deu e troco entregue. Na gaveta e no dinheiro em espécie entra
+-- recebido − troco (com o troco arredondado para baixo, sobram uns centavos a mais que o valor da venda).
+ALTER TABLE entradas ADD COLUMN IF NOT EXISTS valor_recebido NUMERIC(10,2);
+ALTER TABLE entradas ADD COLUMN IF NOT EXISTS troco NUMERIC(10,2);
 
 -- Produto vendido (cascão, self-service, bebidas...). Vendas antigas são classificadas pelo valor.
 ALTER TABLE entradas ADD COLUMN IF NOT EXISTS produto TEXT;

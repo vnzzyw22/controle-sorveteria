@@ -47,6 +47,9 @@ export interface Entrada {
   liquidoCentavos: number
   dataRecebimento: string
   criadoEm: string
+  /** Venda em dinheiro: nota que o cliente deu e troco entregue (null quando não foi informado). */
+  recebidoCentavos: number | null
+  trocoCentavos: number | null
 }
 
 export interface Parcela {
@@ -102,9 +105,14 @@ export async function getTaxas(): Promise<Taxa[]> {
 
 // ---------- Entradas ----------
 
+/** Quanto a venda deixou de dinheiro: em dinheiro com nota informada, recebido − troco; senão o líquido. */
+const DINHEIRO_QUE_FICOU = /* sql */ `CASE WHEN forma = 'dinheiro' AND valor_recebido IS NOT NULL
+  THEN valor_recebido - COALESCE(troco, 0) ELSE valor_liquido END`
+
 const ENTRADA_COLUMNS = /* sql */ `
   e.id, e.data, e.descricao, e.forma, e.maquininha_id, m.nome AS maquininha_nome, e.parcelas,
-  e.valor_bruto, e.taxa_percentual, e.valor_taxa, e.valor_liquido, e.data_recebimento, e.criado_em, e.produto
+  e.valor_bruto, e.taxa_percentual, e.valor_taxa, e.valor_liquido, e.data_recebimento, e.criado_em, e.produto,
+  e.valor_recebido, e.troco
 `
 
 interface EntradaRow {
@@ -122,6 +130,8 @@ interface EntradaRow {
   data_recebimento: string
   criado_em: Date
   produto: string | null
+  valor_recebido: string | null
+  troco: string | null
 }
 
 function mapEntrada(r: EntradaRow): Entrada {
@@ -140,6 +150,8 @@ function mapEntrada(r: EntradaRow): Entrada {
     liquidoCentavos: decimalToCents(r.valor_liquido),
     dataRecebimento: r.data_recebimento,
     criadoEm: r.criado_em.toISOString(),
+    recebidoCentavos: r.valor_recebido === null ? null : decimalToCents(r.valor_recebido),
+    trocoCentavos: r.troco === null ? null : decimalToCents(r.troco),
   }
 }
 
@@ -729,7 +741,7 @@ async function saldoDaConta(conta: Conta, base: { valor: string; data: string; s
   const daConta = conta === 'especie' ? "= 'dinheiro'" : "<> 'dinheiro'"
   const [mov] = await query<{ recebido: string | null; a_receber: string | null; pago: string | null; outras: string | null }>(
     `WITH vendas AS (
-       SELECT valor_liquido, data_recebimento FROM entradas
+       SELECT ${DINHEIRO_QUE_FICOU} AS valor_liquido, data_recebimento FROM entradas
        WHERE forma ${daConta} AND data <= $2 AND (data > $1 OR (data = $1 AND criado_em > $3))
      )
      SELECT
@@ -819,7 +831,7 @@ export interface Gaveta {
 export async function getGaveta(data: string): Promise<Gaveta | null> {
   const [g] = await query<{ abertura: string; contado: string | null; vendas: string | null; saidas: string | null }>(
     `SELECT g.abertura, g.contado,
-       (SELECT SUM(valor_bruto) FROM entradas WHERE data = $1 AND forma = 'dinheiro') AS vendas,
+       (SELECT SUM(${DINHEIRO_QUE_FICOU}) FROM entradas WHERE data = $1 AND forma = 'dinheiro') AS vendas,
        (SELECT SUM(p.valor) FROM saidas_parcelas p JOIN saidas s ON s.id = p.saida_id
         WHERE p.pago_em = $1 AND s.forma = 'dinheiro') AS saidas
      FROM caixa_gaveta g WHERE g.data = $1`,

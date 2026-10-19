@@ -11,13 +11,16 @@ import { PRAZO_PADRAO } from '@/lib/taxas'
 import { createEntrada, deleteEntrada, updateEntrada } from '@/lib/actions'
 import type { Entrada, Maquininha, Taxa, Totais } from '@/lib/data'
 import { addDays, formatData, formatDataCurta, formatHora } from '@/lib/dates'
-import { FORMA_LABEL, MAX_PARCELAS_CREDITO, calcularTaxa, formatBRL, type FormaEntrada } from '@/lib/money'
+import { FORMA_LABEL, MAX_PARCELAS_CREDITO, MOEDA_TROCO, calcularTaxa, formatBRL, trocoParaDar, type FormaEntrada } from '@/lib/money'
 import { linkEditarVenda } from '@/lib/voltar'
 import { PRODUTOS, nomeProduto, produtoPeloValor, type ProdutoId } from '@/lib/produtos'
 import { CobrancaMaquininha } from './cobranca-maquininha'
 import { BuscarVendasBotao } from '@/components/buscar-vendas-botao'
 
 const ULTIMA_MAQ = 'sorveteria:ultima-maquininha'
+
+/** Notas que o cliente costuma dar (em centavos). */
+const NOTAS = [500, 1000, 2000, 5000, 10000, 20000]
 
 const FORMAS: { value: FormaEntrada; label: string; icon: typeof Banknote; tone: string }[] = [
   { value: 'dinheiro', label: 'Dinheiro', icon: Banknote, tone: 'text-dinheiro' },
@@ -72,7 +75,20 @@ export function VendaForm({
     original ? original.produto !== produtoPeloValor(original.brutoCentavos) : false,
   )
 
+  // Dinheiro: nota que o cliente deu e troco (sugerido pelo site, arredondado para dar com moedas; dá para mudar).
+  const [recebido, setRecebido] = useState(original?.recebidoCentavos ?? 0)
+  const [trocoManual, setTrocoManual] = useState<number | null>(original?.trocoCentavos ?? null)
+  const trocoExato = recebido > valor ? recebido - valor : 0
+  const trocoSugerido = recebido >= valor ? trocoParaDar(valor, recebido) : 0
+  const troco = trocoManual ?? trocoSugerido
+
+  function mudarRecebido(centavos: number) {
+    setRecebido(centavos)
+    setTrocoManual(null)
+  }
+
   function mudarValor(centavos: number) {
+    setTrocoManual(null)
     setValor(centavos)
     if (!produtoManual) setProduto(produtoPeloValor(centavos))
   }
@@ -162,6 +178,8 @@ export function VendaForm({
         : undefined,
     })
     setValor(0)
+    setRecebido(0)
+    setTrocoManual(null)
     setDescricao('')
     setProduto('self_service')
     setProdutoManual(false)
@@ -260,6 +278,73 @@ export function VendaForm({
           )}
         </AnimatePresence>
         {forma === 'dinheiro' && <input type="hidden" name="maquininha" value="" />}
+
+        <AnimatePresence initial={false}>
+          {forma === 'dinheiro' && (
+            <motion.fieldset
+              key="troco"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+              className="overflow-hidden"
+            >
+              <legend className="rotulo">Quanto o cliente deu? (opcional)</legend>
+              <div className="flex flex-wrap gap-1.5">
+                {[...(valor > 0 ? [{ n: valor, rotulo: 'Valor certo' }] : []), ...NOTAS.filter((n) => n > valor).map((n) => ({ n, rotulo: formatBRL(n) }))].map(({ n, rotulo }) => (
+                  <button
+                    key={n}
+                    type="button"
+                    aria-pressed={recebido === n}
+                    onClick={() => mudarRecebido(n)}
+                    className={`tabular rounded-full px-3.5 py-1.5 text-sm font-semibold transition-colors ${
+                      recebido === n
+                        ? 'bg-dinheiro text-white'
+                        : 'border border-linha bg-superficie text-cacau-suave hover:border-borda hover:text-cacau'
+                    }`}
+                  >
+                    {rotulo}
+                  </button>
+                ))}
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-3 sm:max-w-md">
+                <div>
+                  <label htmlFor="recebido" className="rotulo">
+                    Recebido
+                  </label>
+                  <MoneyInput id="recebido" name="recebido" value={recebido} onChange={mudarRecebido} />
+                </div>
+                <div>
+                  <label htmlFor="troco" className="rotulo">
+                    Troco a dar
+                  </label>
+                  <MoneyInput id="troco" name="troco" value={troco} onChange={setTrocoManual} />
+                </div>
+              </div>
+              {recebido > 0 && recebido < valor ? (
+                <p className="mt-2 text-sm font-medium text-saida">Faltam {formatBRL(valor - recebido)} para pagar a venda.</p>
+              ) : (
+                recebido > 0 && (
+                  <p className="mt-2 text-sm text-cacau-suave">
+                    {troco > 0 ? (
+                      <>
+                        Dê <strong className="tabular text-lg text-dinheiro">{formatBRL(troco)}</strong> de troco.
+                      </>
+                    ) : (
+                      'Sem troco.'
+                    )}
+                    {trocoExato !== troco && trocoManual === null && (
+                      <span className="block text-xs">
+                        Troco exato: {formatBRL(trocoExato)}, arredondado para baixo (moedas de {MOEDA_TROCO} centavos). Ficam{' '}
+                        {formatBRL(trocoExato - troco)} a mais na gaveta.
+                      </span>
+                    )}
+                  </p>
+                )
+              )}
+            </motion.fieldset>
+          )}
+        </AnimatePresence>
 
         <AnimatePresence initial={false}>
           {forma === 'credito' && (

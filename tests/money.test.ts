@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import { addDays, addMonths, hoje, isIsoDate } from '../lib/dates.ts'
 import {
   calcularTaxa,
+  trocoParaDar,
   centsToDecimal,
   decimalToCents,
   dividirParcelas,
@@ -87,4 +88,12 @@ test('produto pelo valor: preços fixos e self-service', () => {
   assert.equal(nomeProduto('cascao_2'), 'Cascão 2 bolas')
   assert.equal(nomeProduto(null), 'Self-service')
   assert.match(produtoPeloValorSql('valor_bruto'), /WHEN 7\.99 THEN 'cascao_1'.*ELSE 'self_service' END/)
+})
+
+test('troco arredondado para baixo até 5 centavos (dá para entregar com moedas)', () => {
+  assert.equal(trocoParaDar(2987, 5000), 2010) // exato 20,13
+  assert.equal(trocoParaDar(2985, 5000), 2015) // exato 20,15
+  assert.equal(trocoParaDar(799, 1000), 200) // exato 2,01
+  assert.equal(trocoParaDar(1500, 1500), 0)
+  assert.equal(trocoParaDar(1500, 1000), 0)
 })
