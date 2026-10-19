@@ -1,7 +1,7 @@
 import { BottomNav, MobileHeader, Sidebar } from '@/components/nav'
 import { AutoAtualizar } from '@/components/auto-atualizar'
 import { requireAuth } from '@/lib/auth'
-import { ultimaEntradaId } from '@/lib/data'
+import { marcaVendas } from '@/lib/data'
 import { databaseEnvName } from '@/lib/db'
 import { SemBanco } from './sem-banco'
 
@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic'
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   await requireAuth()
   const banco = databaseEnvName()
-  const ultimaId = banco ? await ultimaEntradaId().catch(() => 0) : 0
+  const marca = banco ? await marcaVendas().catch(() => '') : ''
   return (
     <div className="flex min-h-dvh">
       <Sidebar />
@@ -22,7 +22,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </main>
       </div>
       <BottomNav />
-      {banco && <AutoAtualizar ultimaId={ultimaId} />}
+      {banco && <AutoAtualizar marca={marca} />}
     </div>
   )
 }

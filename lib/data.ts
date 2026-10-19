@@ -690,9 +690,12 @@ export async function getCategoriasUsadas(): Promise<string[]> {
 }
 
 /** Número da venda mais recente (usado pelas telas que se atualizam sozinhas). */
-export async function ultimaEntradaId(): Promise<number> {
-  const [r] = await query<{ ultima: number | null }>('SELECT max(id) AS ultima FROM entradas')
-  return r?.ultima ?? 0
+/** Muda sempre que entra, sai ou é ligada à maquininha uma venda: a tela aberta usa isto para saber quando recarregar. */
+export async function marcaVendas(): Promise<string> {
+  const [r] = await query<{ marca: string }>(
+    `SELECT concat_ws(':', max(id), count(*), count(mp_payment_id)) AS marca FROM entradas`,
+  )
+  return r?.marca ?? ''
 }
 
 // ---------- Saldo da empresa ----------

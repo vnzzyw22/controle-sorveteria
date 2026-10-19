@@ -9,13 +9,16 @@ const PRIMEIRA = 1_500
 
 /**
  * Fica no layout de todas as telas: logo ao abrir, ao voltar para o app e a cada 15 s (só com a tela visível)
- * busca vendas novas da maquininha e recarrega os dados quando aparece venda nova, lançada por outro
- * aparelho, pelo aviso ou pela busca. O servidor limita a busca no Mercado Pago a uma a cada 10 s.
+ * busca vendas novas da maquininha e recarrega os dados quando as vendas mudam (lançadas por outro aparelho,
+ * pelo aviso, pelo despertador ou pela busca). O servidor limita a busca no Mercado Pago a uma a cada 10 s.
  */
-export function AutoAtualizar({ ultimaId }: { ultimaId: number }) {
+export function AutoAtualizar({ marca }: { marca: string }) {
   const router = useRouter()
-  const conhecida = useRef(ultimaId)
-  conhecida.current = Math.max(conhecida.current, ultimaId)
+  // Marca das vendas que esta tela já mostra (muda quando entra, sai ou é ligada à maquininha uma venda).
+  const conhecida = useRef(marca)
+  useEffect(() => {
+    conhecida.current = marca
+  }, [marca])
 
   useEffect(() => {
     let parado = false
@@ -23,8 +26,8 @@ export function AutoAtualizar({ ultimaId }: { ultimaId: number }) {
       if (document.visibilityState !== 'visible') return
       try {
         const r = await verificarVendasNovas()
-        if (!parado && r.ultimaId !== conhecida.current) {
-          conhecida.current = r.ultimaId
+        if (!parado && r.marca !== conhecida.current) {
+          conhecida.current = r.marca
           router.refresh()
         }
       } catch {

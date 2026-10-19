@@ -16,5 +16,5 @@ export async function proxy(request: NextRequest) {
 export const config = {
   // O webhook do Mercado Pago fica de fora: ele se protege pela assinatura (app/api/mercadopago/webhook).
   // O manifest e os ícones também: o navegador busca esses arquivos sem o login para instalar o app.
-  matcher: ['/((?!login|api/mercadopago/webhook|_next/static|_next/image|favicon.ico|icon.svg|manifest.webmanifest|icons/).*)'],
+  matcher: ['/((?!login|api/mercadopago/webhook|api/mercadopago/despertador|_next/static|_next/image|favicon.ico|icon.svg|manifest.webmanifest|icons/).*)'],
 }

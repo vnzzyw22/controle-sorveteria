@@ -7,7 +7,7 @@ import { redirect } from 'next/navigation'
 import { requireAuth } from './auth'
 import { nomeDoMes } from './analise'
 import { CATEGORIAS_PADRAO, categoriaCanonica } from './categorias'
-import { PAR_REPETIDO_SQL, getCategoriasUsadas } from './data'
+import { PAR_REPETIDO_SQL, getCategoriasUsadas, marcaVendas } from './data'
 import { atualizarCobranca, cancelarCobranca, criarCobranca, mpPronto, mudarModoMaquininha, sincronizarDia, sincronizarSeNecessario, type ModoMaquininha } from './mercadopago'
 import { query, transaction } from './db'
 import { addDays, addMonths, hoje, isIsoDate } from './dates'
@@ -700,7 +700,7 @@ export async function trocarModoMaquininha(modo: ModoMaquininha): Promise<Action
  * Chamada a cada 15 s por qualquer tela aberta: puxa as vendas novas da maquininha (se o Mercado Pago estiver
  * configurado) e devolve o número da última venda, para a tela saber se precisa se atualizar.
  */
-export async function verificarVendasNovas(): Promise<{ ultimaId: number }> {
+export async function verificarVendasNovas(): Promise<{ marca: string }> {
   await requireAuth()
   if (mpPronto()) {
     try {
@@ -709,8 +709,7 @@ export async function verificarVendasNovas(): Promise<{ ultimaId: number }> {
       console.error('Busca automática do Mercado Pago falhou:', error instanceof Error ? error.message : error)
     }
   }
-  const [r] = await query<{ ultima: number | null }>('SELECT max(id) AS ultima FROM entradas')
-  return { ultimaId: r?.ultima ?? 0 }
+  return { marca: await marcaVendas() }
 }
 
 /** Ajustes: quanto a empresa tem (caixa + conta) no fim de um dia. Não entra como venda. */

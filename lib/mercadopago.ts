@@ -446,23 +446,22 @@ async function conferirCobrancasPendentes(): Promise<number> {
   return lancadas
 }
 
-/** Busca os pagamentos do dia na conta e lança os que vieram da maquininha e ainda não estão no sistema. */
-export async function sincronizarDia(
-  dia: string,
-  opcoes: { registrar?: boolean } = {},
-): Promise<{ lancadas: number; jaEstavam: number; ignoradas: number; detalhe: string }> {
-  const registrar = opcoes.registrar ?? true
-  const daCobranca = await conferirCobrancasPendentes()
-  const pagamentos = await pagamentosDoDia(dia)
+interface ResultadoBusca {
+  lancadas: number
+  jaEstavam: number
+  ignoradas: number
+  motivos: string[]
+}
+
+/** Registra uma lista de pagamentos, pulando os que já estão no sistema. */
+async function registrarLista(pagamentos: PagamentoMP[]): Promise<ResultadoBusca> {
   const ids = pagamentos.map((p) => String(p.id))
   const existentes = new Set(
     (await query<{ mp_payment_id: string }>('SELECT mp_payment_id FROM entradas WHERE mp_payment_id = ANY($1::text[])', [ids])).map(
       (r) => r.mp_payment_id,
     ),
   )
-
-  const resultado = { lancadas: daCobranca, jaEstavam: 0, ignoradas: 0 }
-  const motivos: string[] = []
+  const resultado: ResultadoBusca = { lancadas: 0, jaEstavam: 0, ignoradas: 0, motivos: [] }
   for (const resumo of pagamentos) {
     const id = String(resumo.id)
     const estornado = ['refunded', 'cancelled', 'charged_back'].includes(resumo.status ?? '')
@@ -477,9 +476,22 @@ export async function sincronizarDia(
     else if (r.entradaId || r.texto === 'já estava lançada') resultado.jaEstavam++
     else {
       resultado.ignoradas++
-      motivos.push(`${resumoPagamento(p, p.point_of_interaction?.type)}: ${r.texto}`)
+      resultado.motivos.push(`${resumoPagamento(p, p.point_of_interaction?.type)}: ${r.texto}`)
     }
   }
+  return resultado
+}
+
+/** Busca os pagamentos do dia na conta e lança os que vieram da maquininha e ainda não estão no sistema. */
+export async function sincronizarDia(
+  dia: string,
+  opcoes: { registrar?: boolean } = {},
+): Promise<{ lancadas: number; jaEstavam: number; ignoradas: number; detalhe: string }> {
+  const registrar = opcoes.registrar ?? true
+  const daCobranca = await conferirCobrancasPendentes()
+  const pagamentos = await pagamentosDoDia(dia)
+  const { motivos, ...r } = await registrarLista(pagamentos)
+  const resultado = { ...r, lancadas: r.lancadas + daCobranca }
 
   let detalhe = `${resultado.lancadas} lançadas, ${resultado.jaEstavam} já estavam, ${resultado.ignoradas} ignoradas`
   if (motivos.length) detalhe += `. Ignoradas: ${motivos.slice(0, 5).join(' | ')}`
@@ -488,6 +500,37 @@ export async function sincronizarDia(
     await registrarEvento(registrar ? 'busca manual' : 'busca automática', dia, detalhe)
   }
   return { ...resultado, detalhe }
+}
+
+/** Horário no formato que a busca do Mercado Pago aceita (com o fuso de Brasília). */
+function isoBrasilia(ms: number): string {
+  return new Date(ms - 3 * 3600_000).toISOString().replace('Z', '-03:00')
+}
+
+/**
+ * Despertador (serviço externo chamando a cada minuto, com o site fechado): olha no Mercado Pago só os
+ * pagamentos mexidos nos últimos 15 minutos e só abre o banco de dados se houver algum da maquininha.
+ * Assim o banco (Neon grátis) continua "dormindo" nas horas sem venda.
+ */
+export async function sincronizarRecentes(): Promise<{ vistos: number; lancadas: number }> {
+  const agora = Date.now()
+  const busca = await new Payment(sdk()).search({
+    options: {
+      range: 'date_last_updated',
+      begin_date: isoBrasilia(agora - 15 * 60_000),
+      end_date: isoBrasilia(agora + 60_000),
+      sort: 'date_last_updated',
+      criteria: 'desc',
+      limit: 50,
+    },
+  })
+  const doBalcao = ((busca.results ?? []) as PagamentoMP[]).filter((p) => p.id !== undefined && p.id !== null && veioDoBalcao(p))
+  if (!doBalcao.length) return { vistos: 0, lancadas: 0 }
+  const r = await registrarLista(doBalcao)
+  if (r.lancadas) {
+    await registrarEvento('despertador', hoje(), `${r.lancadas} lançadas, ${r.jaEstavam} já estavam, ${r.ignoradas} ignoradas`)
+  }
+  return { vistos: doBalcao.length, lancadas: r.lancadas }
 }
 
 /**

@@ -57,3 +57,17 @@ export async function passwordMatches(input: string): Promise<boolean> {
   const [a, b] = await Promise.all([hmac('cmp', input), hmac('cmp', expected)])
   return safeEqual(a, b)
 }
+
+/**
+ * Chave do "despertador" (serviço externo que chama a busca de vendas a cada minuto, mesmo com o site fechado).
+ * Sai do mesmo segredo da sessão, então não precisa configurar nada a mais; quem troca a senha troca a chave.
+ */
+export async function chaveDespertador(): Promise<string | null> {
+  const key = secret()
+  return key ? (await hmac(key, 'despertador-v1')).slice(0, 32) : null
+}
+
+export async function chaveDespertadorConfere(recebida: string | null): Promise<boolean> {
+  const certa = await chaveDespertador()
+  return !!certa && !!recebida && safeEqual(certa, recebida)
+}

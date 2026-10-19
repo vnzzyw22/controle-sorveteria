@@ -2,6 +2,7 @@ import { CheckCircle2, CircleDashed, TriangleAlert } from 'lucide-react'
 import { headers } from 'next/headers'
 import { formatHora, formatDataCurta, hoje } from '@/lib/dates'
 import { buscarTerminal, contaDoToken, mpConfig, ultimosEventos, type ContaMP, type Terminal } from '@/lib/mercadopago'
+import { chaveDespertador } from '@/lib/session'
 import { ListaVerMais } from '@/components/lista-ver-mais'
 import { ModoMaquininhaBotao } from './modo-maquininha-botao'
 
@@ -24,6 +25,8 @@ export async function MercadoPagoPainel() {
   const h = await headers()
   const host = h.get('x-forwarded-host') ?? h.get('host') ?? 'seu-site.vercel.app'
   const webhook = `https://${host}/api/mercadopago/webhook`
+  const chave = await chaveDespertador()
+  const despertador = chave ? `https://${host}/api/mercadopago/despertador?chave=${chave}` : null
 
   let terminal: Terminal | null = null
   let todos: Terminal[] = []
@@ -101,8 +104,19 @@ export async function MercadoPagoPainel() {
           <code className="break-all text-cacau">{webhook}</code> e marque os eventos <strong>Pagamentos</strong> e{' '}
           <strong>Order (Mercado Pago)</strong>.
         </Item>
+        <Item ok={false} titulo="Vendas com o site fechado (despertador)">
+          A maquininha não avisa o site sozinha. Para as vendas caírem mesmo com o site fechado, um serviço grátis
+          chama o site a cada minuto. Uma vez só: crie uma conta em <strong>cron-job.org</strong>, toque em{' '}
+          <strong>Create cronjob</strong>, cole o endereço abaixo em <strong>URL</strong>, escolha{' '}
+          <strong>Every 1 minute</strong> e salve.
+          {despertador ? (
+            <code className="mt-1.5 block break-all rounded-lg bg-creme-fundo px-2 py-1.5 text-cacau">{despertador}</code>
+          ) : (
+            ' (O endereço aparece aqui quando a senha APP_PASSWORD estiver configurada.)'
+          )}
+          <span className="mt-1 block">Não mostre este endereço para ninguém: ele funciona sem senha.</span>
+        </Item>
       </ul>
-
 
       {eventos.length > 0 && (
         <div className="mt-4 border-t border-linha pt-4">
